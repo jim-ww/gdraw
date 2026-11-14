@@ -38,7 +38,7 @@ type scene struct {
 func (s *scene) draw(ops *op.Ops, r *renderer, d *Document, skip *Edit) {
 	if s.doc != d || s.ver != d.Version || s.skip != skip {
 		s.doc, s.ver, s.skip = d, d.Version, skip
-		d.updateFills()
+		r.fills.prune()
 		s.ops.Reset()
 		m := op.Record(&s.ops)
 		// Fills go first, underneath the ink that encloses them.
@@ -62,6 +62,7 @@ func (s *scene) draw(ops *op.Ops, r *renderer, d *Document, skip *Edit) {
 // renderer draws edits as Gio ops in world coordinates.
 type renderer struct {
 	shaper *text.Shaper
+	fills  fillImages
 }
 
 func (r *renderer) drawEdit(ops *op.Ops, d *Document, e *Edit, hex string) {
@@ -93,7 +94,7 @@ func (r *renderer) drawEdit(ops *op.Ops, d *Document, e *Edit, hex string) {
 	case KindText:
 		r.drawText(ops, e, col)
 	case KindFill:
-		drawFill(ops, d.fills[e], hex)
+		r.drawFill(ops, e.Area, hex)
 	}
 }
 

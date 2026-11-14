@@ -1,10 +1,7 @@
 package main
 
 import (
-	"encoding/binary"
-	"hash/fnv"
 	"image"
-	"image/color"
 	"math"
 	"sync"
 
@@ -152,12 +149,6 @@ func coverText(m *image.Alpha, e *Edit, t xform) {
 	}
 }
 
-// fillMask is the area a fill edit covers, as a pixel mask in world space.
-type fillMask struct {
-	xform
-	mask *image.Alpha
-}
-
 // fillLevels are the raster scales a fill is attempted at, finest first.
 // Each covers fillWindow pixels around the seed, so coarser levels reach
 // larger enclosed areas.
@@ -166,29 +157,31 @@ var fillLevels = [...]float64{4, 1, 1.0 / 4, 1.0 / 16}
 const fillWindow = 1024
 
 // fillRegion floods the area around seed enclosed by the ink of edits. It
-// returns nil if seed is on ink or the area isn't enclosed. window is the
-// world area whose ink the result depends on.
-func fillRegion(edits []*Edit, seed Point) (m *fillMask, window [2]Point) {
+// returns nil if seed is on ink or the area isn't enclosed.
+func fillRegion(edits []*Edit, seed Point) *FillArea {
 	ink := image.NewAlpha(image.Rect(0, 0, fillWindow, fillWindow))
 	for _, s := range fillLevels {
 		half := fillWindow / 2 / s
-		t := xform{origin: Point{seed.X - half, seed.Y - half}, scale: s}
-		window = [2]Point{t.origin, {seed.X + half, seed.Y + half}}
+		origin := Point{seed.X - half, seed.Y - half}
+		window := [2]Point{origin, {seed.X + half, seed.Y + half}}
 		clear(ink.Pix)
 		for _, e := range edits {
 			if e.Kind != KindFill && intersects(e, window) {
-				coverEdit(ink, e, t)
+				coverEdit(ink, e, xform{origin, s})
 			}
 		}
 		region, box, enclosed := flood(ink, image.Pt(fillWindow/2, fillWindow/2))
 		if region == nil {
-			return nil, window
+			return nil
 		}
 		if enclosed {
-			return &fillMask{xform: t, mask: dilate(region, box)}, window
+			m := dilate(region, box)
+			at := m.Rect.Min
+			m.Rect = m.Rect.Sub(at)
+			return &FillArea{Origin: Point{origin.X + float64(at.X)/s, origin.Y + float64(at.Y)/s}, Scale: s, Mask: m}
 		}
 	}
-	return nil, window
+	return nil
 }
 
 func intersects(e *Edit, w [2]Point) bool {
@@ -246,63 +239,4 @@ func dilate(region []bool, box image.Rectangle) *image.Alpha {
 		}
 	}
 	return out
-}
-
-// bounds returns the world rectangle the mask covers.
-func (f *fillMask) bounds() (lo, hi Point) {
-	r := f.mask.Rect
-	lo = Point{f.origin.X + float64(r.Min.X)/f.scale, f.origin.Y + float64(r.Min.Y)/f.scale}
-	hi = Point{f.origin.X + float64(r.Max.X)/f.scale, f.origin.Y + float64(r.Max.Y)/f.scale}
-	return lo, hi
-}
-
-// colorize returns the mask as a premultiplied image in color c, with
-// its top-left pixel at the image origin.
-func (f *fillMask) colorize(c color.NRGBA) *image.RGBA {
-	img := image.NewRGBA(image.Rect(0, 0, f.mask.Rect.Dx(), f.mask.Rect.Dy()))
-	for i, a := range f.mask.Pix {
-		if a == 0 {
-			continue
-		}
-		img.Pix[i*4+0] = uint8(uint16(c.R) * uint16(a) / 255)
-		img.Pix[i*4+1] = uint8(uint16(c.G) * uint16(a) / 255)
-		img.Pix[i*4+2] = uint8(uint16(c.B) * uint16(a) / 255)
-		img.Pix[i*4+3] = a
-	}
-	return img
-}
-
-// contains reports whether world point p lies inside the mask.
-func (f *fillMask) contains(p Point) bool {
-	x, y := f.px(p)
-	q := image.Pt(int(math.Floor(x)), int(math.Floor(y)))
-	return q.In(f.mask.Rect) && f.mask.Pix[f.mask.PixOffset(q.X, q.Y)] != 0
-}
-
-// geomHash fingerprints the geometry of the non-fill edits intersecting
-// window, so cached fills are recomputed only when the ink around them may
-// have changed.
-func geomHash(edits []*Edit, window [2]Point) uint64 {
-	h := fnv.New64a()
-	var b [8]byte
-	f := func(v float64) {
-		binary.LittleEndian.PutUint64(b[:], math.Float64bits(v))
-		h.Write(b[:])
-	}
-	for _, e := range edits {
-		if e.Kind == KindFill || !intersects(e, window) {
-			continue
-		}
-		h.Write([]byte(e.Kind))
-		h.Write([]byte(e.Text))
-		f(e.Size)
-		if e.Filled {
-			f(1)
-		}
-		for _, p := range e.Points {
-			f(p.X)
-			f(p.Y)
-		}
-	}
-	return h.Sum64()
 }

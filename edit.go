@@ -36,6 +36,8 @@ type Edit struct {
 	Text   string  `json:"text,omitempty"`
 	Filled bool    `json:"filled,omitempty"`
 
+	Area *FillArea `json:"area,omitempty"` // fills only
+
 	Selected bool `json:"-"`
 }
 
@@ -43,6 +45,10 @@ type Edit struct {
 func (e *Edit) Clone() *Edit {
 	c := *e
 	c.Points = append([]Point(nil), e.Points...)
+	if e.Area != nil {
+		a := *e.Area
+		c.Area = &a
+	}
 	return &c
 }
 
@@ -51,10 +57,16 @@ func (e *Edit) Translate(d Point) {
 	for i := range e.Points {
 		e.Points[i] = e.Points[i].Add(d)
 	}
+	if e.Area != nil {
+		e.Area.Origin = e.Area.Origin.Add(d)
+	}
 }
 
 // Bounds returns e's bounding box, including stroke width.
 func (e *Edit) Bounds() (lo, hi Point) {
+	if e.Area != nil {
+		return e.Area.bounds()
+	}
 	lo = Point{math.Inf(1), math.Inf(1)}
 	hi = Point{math.Inf(-1), math.Inf(-1)}
 	for _, p := range e.Points {
@@ -96,6 +108,11 @@ func (e *Edit) Distance(p Point) float64 {
 			return 0
 		}
 		return distance(e.Points[0], p)
+	case KindFill:
+		if e.Area != nil && e.Area.contains(p) {
+			return 0
+		}
+		return math.Inf(1)
 	default:
 		return distance(e.Points[0], p)
 	}

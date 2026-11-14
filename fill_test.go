@@ -1,6 +1,12 @@
 package main
 
-import "testing"
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestFillRegion(t *testing.T) {
 	box := &Edit{Kind: KindRect, Size: 2, Points: []Point{{0, 0}, {100, 60}}}
@@ -21,7 +27,7 @@ func TestFillRegion(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m, _ := fillRegion(tt.edits, tt.seed)
+			m := fillRegion(tt.edits, tt.seed)
 			if (m != nil) != (tt.inside != nil) {
 				t.Fatalf("fillRegion returned %v, want region: %v", m != nil, tt.inside != nil)
 			}
@@ -39,18 +45,59 @@ func TestFillRegion(t *testing.T) {
 	}
 }
 
-func TestGeomHashIgnoresSelectionAndFills(t *testing.T) {
-	w := [2]Point{{-10, -10}, {10, 10}}
-	a := &Edit{Kind: KindLine, Points: []Point{{0, 0}, {1, 1}}}
-	far := &Edit{Kind: KindLine, Points: []Point{{100, 100}, {101, 101}}}
-	h := geomHash([]*Edit{a}, w)
-	a.Selected = true
-	if geomHash([]*Edit{a, far, {Kind: KindFill, Points: []Point{{3, 3}}}}, w) != h {
-		t.Error("hash changed on selection, fill or ink outside the window")
+func TestFillKeepsAreaWhenSplit(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	u := newUI(Config{})
+	d := u.doc()
+	d.Add(&Edit{Kind: KindRect, Size: 2, Points: []Point{{0, 0}, {200, 100}}})
+	u.tool = ToolFill
+	u.toolDown(Point{50, 50})
+	u.toolUp(Point{50, 50}, false)
+
+	// A rect crossing the filled one splits its interior.
+	u.tool = ToolRect
+	u.toolDown(Point{100, -50})
+	u.toolUp(Point{150, 150}, false)
+
+	fill := d.fillAt(Point{50, 50})
+	if fill == nil {
+		t.Fatal("no fill at the clicked point")
 	}
-	a.Translate(Point{1, 0})
-	if geomHash([]*Edit{a}, w) == h {
-		t.Error("hash unchanged after move")
+	if d.fillAt(Point{180, 50}) != fill {
+		t.Error("fill lost the part cut off by the crossing rect")
+	}
+}
+
+func TestFillAreaJSON(t *testing.T) {
+	box := &Edit{Kind: KindRect, Size: 2, Points: []Point{{0, 0}, {100, 60}}}
+	fill := &Edit{Kind: KindFill, Points: []Point{{50, 30}}, Area: fillRegion([]*Edit{box}, Point{50, 30})}
+	data, err := json.Marshal(fill)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Edit
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Area.Origin != fill.Area.Origin || got.Area.Scale != fill.Area.Scale || !bytes.Equal(got.Area.Mask.Pix, fill.Area.Mask.Pix) {
+		t.Error("area changed in JSON round trip")
+	}
+}
+
+func TestLoadBakesBdrawFills(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.json")
+	old := `{"version":1,"edits":[
+		{"id":1,"kind":"rect","points":[{"X":0,"Y":0},{"X":100,"Y":60}],"color":"#ffffff","size":2},
+		{"id":2,"kind":"fill","points":[{"X":50,"Y":30}],"color":"#ff0000","size":0}]}`
+	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d, err := LoadDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.fillAt(Point{10, 10}) == nil {
+		t.Error("bdraw fill has no area after load")
 	}
 }
 

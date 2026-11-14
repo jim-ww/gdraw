@@ -39,6 +39,7 @@ func LoadDocument(path string) (*Document, error) {
 		return nil, fmt.Errorf("%s: file version %d is newer than supported %d", path, f.Version, fileVersion)
 	}
 	d.Edits = f.Edits
+	bakeFills(d.Edits)
 	for _, e := range d.Edits {
 		d.nextID = max(d.nextID, e.ID)
 	}

@@ -10,7 +10,7 @@ import (
 )
 
 func sampleEdits() []*Edit {
-	return []*Edit{
+	edits := []*Edit{
 		{Kind: KindRect, Size: 3, Color: "#ffffff", Points: []Point{{0, 0}, {120, 80}}},
 		{Kind: KindFill, Color: "#0000ff", Points: []Point{{60, 40}}},
 		{Kind: KindCircle, Size: 2, Color: "#ff0000", Filled: true, Points: []Point{{150, 0}, {230, 80}}},
@@ -18,6 +18,8 @@ func sampleEdits() []*Edit {
 		{Kind: KindStroke, Size: 6, Color: "#ffff00", Points: []Point{{10, 170}, {40, 190}, {80, 165}, {120, 200}}},
 		{Kind: KindText, Size: 3, Color: "#ff00ff", Text: `a<b & "c"`, Points: []Point{{140, 160}}},
 	}
+	bakeFills(edits)
+	return edits
 }
 
 func TestRasterize(t *testing.T) {

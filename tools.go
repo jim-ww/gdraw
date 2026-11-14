@@ -95,18 +95,13 @@ func (u *UI) toolDown(p Point) {
 		u.startText(p)
 	case ToolFill:
 		u.drag = drag{}
-		m, window := fillRegion(d.Edits, p)
-		if m == nil {
+		area := fillRegion(d.Edits, p)
+		if area == nil {
 			u.status = "fill needs an enclosed area"
 			return
 		}
 		d.BeginChange()
-		e := &Edit{Kind: KindFill, Points: []Point{p}, Color: u.color}
-		d.Add(e)
-		if d.fills == nil {
-			d.fills = make(map[*Edit]*fillEntry)
-		}
-		d.fills[e] = newFillEntry(d.Edits, p, m, window)
+		d.Add(&Edit{Kind: KindFill, Points: []Point{p}, Color: u.color, Area: area})
 	case ToolBrush:
 		d.BeginChange()
 		u.drag.edit = &Edit{Kind: KindStroke, Points: []Point{p}, Color: u.color, Size: u.size}

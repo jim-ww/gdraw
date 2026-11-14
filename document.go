@@ -15,7 +15,6 @@ type Document struct {
 
 	nextID     int
 	history    history
-	fills      map[*Edit]*fillEntry
 	autosaveID string // names the recovery file, see autosave.go
 }
 
@@ -118,4 +117,14 @@ func move(from, to *[][]*Edit, cur []*Edit) ([]*Edit, bool) {
 	*from = (*from)[:n-1]
 	*to = append(*to, cur)
 	return s, true
+}
+
+// fillAt returns the topmost fill covering p.
+func (d *Document) fillAt(p Point) *Edit {
+	for i := len(d.Edits) - 1; i >= 0; i-- {
+		if e := d.Edits[i]; e.Kind == KindFill && e.Distance(p) == 0 {
+			return e
+		}
+	}
+	return nil
 }

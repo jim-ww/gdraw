@@ -25,7 +25,7 @@ func drawingBounds(edits []*Edit) (lo, hi Point, ok bool) {
 	lo = Point{math.Inf(1), math.Inf(1)}
 	hi = Point{math.Inf(-1), math.Inf(-1)}
 	for _, e := range edits {
-		if e.Kind == KindFill {
+		if e.Kind == KindFill && e.Area == nil {
 			continue
 		}
 		elo, ehi := e.Bounds()
@@ -50,10 +50,8 @@ func Rasterize(edits []*Edit, scale float64) *image.RGBA {
 	draw.Draw(img, img.Rect, image.NewUniform(canvasBg), image.Point{}, draw.Src)
 
 	for _, e := range edits {
-		if e.Kind == KindFill && len(e.Points) > 0 {
-			if m, _ := fillRegion(edits, e.Points[0]); m != nil {
-				paintFill(img, m, t, parseColor(e.Color))
-			}
+		if e.Kind == KindFill && e.Area != nil {
+			paintFill(img, e.Area, t, parseColor(e.Color))
 		}
 	}
 	for _, e := range edits {
@@ -71,7 +69,7 @@ func Rasterize(edits []*Edit, scale float64) *image.RGBA {
 }
 
 // paintFill composites fill mask m onto img, sampling it per image pixel.
-func paintFill(img *image.RGBA, m *fillMask, t xform, c color.NRGBA) {
+func paintFill(img *image.RGBA, m *FillArea, t xform, c color.NRGBA) {
 	flo, fhi := m.bounds()
 	x0, y0 := t.px(flo)
 	x1, y1 := t.px(fhi)
@@ -116,11 +114,8 @@ func marshalSVG(edits []*Edit) ([]byte, error) {
 	fmt.Fprintf(&b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>`+"\n", num(lo.X), num(lo.Y), num(w), num(h), hexOf(canvasBg))
 
 	for _, e := range edits {
-		if e.Kind != KindFill || len(e.Points) == 0 {
-			continue
-		}
-		m, _ := fillRegion(edits, e.Points[0])
-		if m == nil {
+		m := e.Area
+		if e.Kind != KindFill || m == nil {
 			continue
 		}
 		var buf bytes.Buffer
