@@ -1,3 +1,4 @@
 /gdraw
 *.test
 result/
+dist/

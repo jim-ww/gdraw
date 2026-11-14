@@ -44,7 +44,7 @@
         };
 
         devShells.default = pkgs.mkShell {
-          packages = [ pkgs.go pkgs.pkg-config ] ++ libs;
+          packages = [ pkgs.go pkgs.pkg-config pkgs.goreleaser ] ++ libs;
           LD_LIBRARY_PATH = runtimeLibs;
         };
       });

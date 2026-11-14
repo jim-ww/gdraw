@@ -33,6 +33,7 @@ gdraw                  # blank canvas
 gdraw file.json        # open (or create) a project
 gdraw -restore         # reopen unsaved drawings from a crashed or closed session
 gdraw -c config.json   # use a specific config file
+gdraw -version         # print the version
 ```
 
 Press `?` for every keybinding. Mouse: wheel zooms, middle-drag or space+drag pans.
@@ -65,6 +66,16 @@ If gdraw is useful to you, consider a small donation.
 **Monero (XMR)**
 
 `83YGRqP8uHed6NeegZQeX9ccCxbzoRHHEEi7pTwk4aqdJZEVXXA6NWtetnsEM2v33zFBBt3Rp6DNhU9qhJEGPspU14yN8t7`
+
+## Releasing
+
+```sh
+make check                    # vet, test, tidy and goreleaser config check
+make snapshot                 # build release archives into dist/ locally
+make release VERSION=v0.1.0   # tag @- and push the tag
+```
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds Linux (amd64) and Windows (amd64, arm64) binaries with GoReleaser and publishes the GitHub release. Linux binaries are built on Ubuntu because Gio links the system GUI libraries; macOS isn't built.
 
 ## License
 
