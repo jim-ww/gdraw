@@ -10,11 +10,14 @@ import (
 
 	"gioui.org/f32"
 	"gioui.org/font/gofont"
+	"gioui.org/io/event"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/text"
+	"gioui.org/unit"
 	"gioui.org/widget"
 	"gioui.org/widget/material"
 )
@@ -30,6 +33,8 @@ var (
 	btnActive = color.NRGBA{0x45, 0x45, 0x45, 0xff}
 	textCol   = color.NRGBA{0xd8, 0xd8, 0xd8, 0xff}
 	dimCol    = color.NRGBA{0x80, 0x80, 0x80, 0xff}
+	activeCol = color.NRGBA{0xff, 0xff, 0xff, 0xff}
+	tipBg     = color.NRGBA{0x2a, 0x2a, 0x2a, 0xf8}
 )
 
 var defaultPalette = []string{
@@ -57,8 +62,11 @@ type UI struct {
 	palette  []string
 	recent   []string
 	status   string
-	tip      string
-	quitting bool // close the window after this frame
+	tip      string    // tooltip of the hovered control
+	tipFrom  time.Time // when the pointer came to rest on it
+	shown    string    // tooltip text tipFrom refers to
+	mouse    f32.Point // pointer position in the window
+	quitting bool      // close the window after this frame
 	help     bool
 
 	nextAutosave time.Time
@@ -86,9 +94,6 @@ type UI struct {
 		newTab   widget.Clickable
 		actions  map[string]*widget.Clickable
 		color    widget.Clickable
-		filled   widget.Clickable
-		grid     widget.Clickable
-		snap     widget.Clickable
 	}
 }
 
@@ -103,7 +108,7 @@ func newUI(cfg Config) *UI {
 	th := material.NewTheme()
 	th.Shaper = text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
 	th.Palette = material.Palette{Bg: barBg, Fg: textCol, ContrastBg: btnActive, ContrastFg: textCol}
-	th.TextSize = 13
+	th.TextSize = 14
 	km, errs := newKeymap(defaultActions(), cfg.Keys)
 	u := &UI{
 		th:      th,
@@ -142,6 +147,9 @@ func newUI(cfg Config) *UI {
 	return u
 }
 
+// tipDelay is how long the pointer rests on a control before its tooltip shows.
+const tipDelay = 400 * time.Millisecond
+
 func (u *UI) Layout(gtx C) D {
 	u.pxPerDp = gtx.Metric.PxPerDp
 	u.tip = ""
@@ -168,6 +176,8 @@ func (u *UI) Layout(gtx C) D {
 		layout.Rigid(u.layoutPrompt),
 		layout.Rigid(u.layoutStatus),
 	)
+	u.trackPointer(gtx)
+	u.layoutTooltip(gtx)
 	return dims
 }
 
@@ -190,30 +200,35 @@ func (u *UI) layoutTabs(gtx C) D {
 			u.selectTab(i)
 		}
 		items = append(items, func(gtx C) D {
-			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-				layout.Rigid(func(gtx C) D { return u.button(gtx, &b.open, d.Title(), i == u.active, "") }),
-				layout.Rigid(func(gtx C) D { return u.button(gtx, &b.close, "×", false, "close tab") }),
-			)
+			return u.button(gtx, &b.open, i == u.active, d.Path, func(gtx C) D {
+				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+					layout.Rigid(func(gtx C) D {
+						return layout.Inset{Left: 10, Top: 7, Bottom: 7, Right: 4}.Layout(gtx, func(gtx C) D {
+							return u.text(gtx, d.Title(), textCol)
+						})
+					}),
+					layout.Rigid(func(gtx C) D {
+						return layout.Inset{Right: 4}.Layout(gtx, func(gtx C) D {
+							return u.iconButton(gtx, &b.close, closeIcon, 14, false, "close tab")
+						})
+					}),
+				)
+			})
 		})
 	}
-	if u.btn.newTab.Clicked(gtx) {
-		u.newTab()
-	}
-	items = append(items, func(gtx C) D {
-		return u.button(gtx, &u.btn.newTab, "+", false, u.withKey("new tab", "new_tab"))
-	})
-	return flow(gtx, items...)
+	items = append(items, u.actionButton(gtx, "new_tab"))
+	return layout.Inset{Left: 4, Right: 4, Top: 4}.Layout(gtx, func(gtx C) D { return flow(gtx, items...) })
 }
 
 func (u *UI) layoutToolbar(gtx C) D {
 	items := []layout.Widget{
-		u.actionButton(gtx, "open", "open"),
-		u.actionButton(gtx, "save", "save"),
-		u.actionButton(gtx, "export", "export"),
-		spacer,
-		u.actionButton(gtx, "undo", "undo"),
-		u.actionButton(gtx, "redo", "redo"),
-		spacer,
+		u.actionButton(gtx, "open"),
+		u.actionButton(gtx, "save"),
+		u.actionButton(gtx, "export"),
+		separator,
+		u.actionButton(gtx, "undo"),
+		u.actionButton(gtx, "redo"),
+		separator,
 	}
 	for t := range numTools {
 		b := &u.btn.tools[t]
@@ -221,10 +236,10 @@ func (u *UI) layoutToolbar(gtx C) D {
 			u.setTool(t)
 		}
 		items = append(items, func(gtx C) D {
-			return u.button(gtx, b, t.String(), u.tool == t, u.withKey(t.String(), "tool_"+t.String()))
+			return u.iconButton(gtx, b, toolIcons[t], 20, u.tool == t, u.withKey(t.String(), "tool_"+t.String()))
 		})
 	}
-	items = append(items, spacer)
+	items = append(items, separator)
 	for i, c := range u.palette {
 		b := &u.btn.swatches[i]
 		if b.Clicked(gtx) {
@@ -235,17 +250,11 @@ func (u *UI) layoutToolbar(gtx C) D {
 	if u.btn.color.Clicked(gtx) {
 		u.pickColor()
 	}
-	toggle := func(b *widget.Clickable, v *bool, label, act string) layout.Widget {
-		if b.Clicked(gtx) {
-			*v = !*v
-		}
-		return func(gtx C) D { return u.button(gtx, b, label, *v, u.withKey("toggle "+label, act)) }
-	}
 	const numTip = "scroll, drag sideways or click to type"
 	items = append(items,
 		func(gtx C) D { return u.colorButton(gtx) },
-		spacer,
-		u.actionButton(gtx, "size_dec", "−"),
+		separator,
+		u.actionButton(gtx, "size_dec"),
 		func(gtx C) D {
 			return u.layoutNumField(gtx, &u.sizeField, numFieldSpec{
 				label: "size", value: u.size, tip: "brush size: " + numTip,
@@ -253,9 +262,9 @@ func (u *UI) layoutToolbar(gtx C) D {
 				set:  u.setSize,
 			})
 		},
-		u.actionButton(gtx, "size_inc", "+"),
-		spacer,
-		u.actionButton(gtx, "zoom_out", "−"),
+		u.actionButton(gtx, "size_inc"),
+		separator,
+		u.actionButton(gtx, "zoom_out"),
 		func(gtx C) D {
 			return u.layoutNumField(gtx, &u.zoomField, numFieldSpec{
 				label: "zoom", value: math.Round(u.doc().Zoom * 100), unit: "%", tip: "zoom: " + numTip,
@@ -263,17 +272,28 @@ func (u *UI) layoutToolbar(gtx C) D {
 				set:  func(v float64) { u.zoomAtCursor(v / 100 / u.doc().Zoom) },
 			})
 		},
-		u.actionButton(gtx, "zoom_in", "+"),
-		spacer,
-		toggle(&u.btn.filled, &u.filled, "filled", "toggle_fill"),
-		toggle(&u.btn.grid, &u.grid, "grid", "toggle_grid"),
-		toggle(&u.btn.snap, &u.snap, "snap", "toggle_snap"),
+		u.actionButton(gtx, "zoom_in"),
+		separator,
+		u.toggleButton(gtx, "toggle_fill", u.filled),
+		u.toggleButton(gtx, "toggle_grid", u.grid),
+		u.toggleButton(gtx, "toggle_snap", u.snap),
+		separator,
+		u.actionButton(gtx, "help"),
 	)
-	return flow(gtx, items...)
+	return layout.Inset{Left: 4, Right: 4, Top: 2, Bottom: 4}.Layout(gtx, func(gtx C) D { return flow(gtx, items...) })
 }
 
 // actionButton returns a toolbar button that runs the named action.
-func (u *UI) actionButton(gtx C, name, label string) layout.Widget {
+func (u *UI) actionButton(gtx C, name string) layout.Widget {
+	return u.actionToggle(gtx, name, false)
+}
+
+// toggleButton is an actionButton highlighted while on is true.
+func (u *UI) toggleButton(gtx C, name string, on bool) layout.Widget {
+	return u.actionToggle(gtx, name, on)
+}
+
+func (u *UI) actionToggle(gtx C, name string, active bool) layout.Widget {
 	b := u.btn.actions[name]
 	if b == nil {
 		b = new(widget.Clickable)
@@ -283,36 +303,81 @@ func (u *UI) actionButton(gtx C, name, label string) layout.Widget {
 	if b.Clicked(gtx) && a.run != nil {
 		a.run(u)
 	}
-	return func(gtx C) D { return u.button(gtx, b, label, false, u.withKey(a.help, name)) }
+	return func(gtx C) D { return u.iconButton(gtx, b, actionIcons[name], 20, active, u.withKey(a.help, name)) }
 }
 
 // colorButton shows the current color; clicking it asks for a hex value.
 func (u *UI) colorButton(gtx C) D {
-	b := &u.btn.color
-	return u.button(gtx, b, "", false, u.withKey("pick color", "pick_color"), func(gtx C) D {
-		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-			layout.Rigid(func(gtx C) D {
-				sz := gtx.Dp(10)
-				paint.FillShape(gtx.Ops, parseColor(u.color), clip.Ellipse{Max: image.Pt(sz, sz)}.Op(gtx.Ops))
-				return D{Size: image.Pt(sz+gtx.Dp(5), sz)}
-			}),
-			layout.Rigid(func(gtx C) D { return u.text(gtx, u.color, textCol) }),
-		)
+	return u.button(gtx, &u.btn.color, false, u.withKey("pick color", "pick_color"), func(gtx C) D {
+		return layout.Inset{Left: 8, Right: 10, Top: 7, Bottom: 7}.Layout(gtx, func(gtx C) D {
+			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+				layout.Rigid(func(gtx C) D {
+					sz := gtx.Dp(14)
+					paint.FillShape(gtx.Ops, parseColor(u.color), clip.Ellipse{Max: image.Pt(sz, sz)}.Op(gtx.Ops))
+					return D{Size: image.Pt(sz+gtx.Dp(6), sz)}
+				}),
+				layout.Rigid(func(gtx C) D { return u.text(gtx, u.color, textCol) }),
+			)
+		})
 	})
 }
 
 func (u *UI) layoutStatus(gtx C) D {
-	msg := u.status
-	if u.tip != "" {
-		msg = u.tip
-	}
 	info := fmt.Sprintf("%s · %.0f%%", u.tool, u.doc().Zoom*100)
-	return layout.Inset{Left: 8, Right: 8, Top: 3, Bottom: 3}.Layout(gtx, func(gtx C) D {
+	return layout.Inset{Left: 10, Right: 10, Top: 4, Bottom: 4}.Layout(gtx, func(gtx C) D {
 		return layout.Flex{}.Layout(gtx,
-			layout.Flexed(1, func(gtx C) D { return u.text(gtx, msg, dimCol) }),
+			layout.Flexed(1, func(gtx C) D { return u.text(gtx, u.status, dimCol) }),
 			layout.Rigid(func(gtx C) D { return u.text(gtx, info, dimCol) }),
 		)
 	})
+}
+
+// trackPointer follows the pointer across the window without taking its
+// events from the controls underneath.
+func (u *UI) trackPointer(gtx C) {
+	for {
+		ev, ok := gtx.Event(pointer.Filter{Target: &u.mouse, Kinds: pointer.Move | pointer.Drag | pointer.Enter})
+		if !ok {
+			break
+		}
+		if e, ok := ev.(pointer.Event); ok {
+			u.mouse = e.Position
+		}
+	}
+	defer pointer.PassOp{}.Push(gtx.Ops).Pop()
+	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+	event.Op(gtx.Ops, &u.mouse)
+}
+
+// layoutTooltip shows the hovered control's tooltip near the pointer once
+// it has rested there for tipDelay.
+func (u *UI) layoutTooltip(gtx C) {
+	if u.tip != u.shown {
+		u.shown, u.tipFrom = u.tip, gtx.Now
+	}
+	if u.tip == "" {
+		return
+	}
+	if wait := u.tipFrom.Add(tipDelay); gtx.Now.Before(wait) {
+		gtx.Execute(op.InvalidateCmd{At: wait})
+		return
+	}
+	m := op.Record(gtx.Ops)
+	gtx.Constraints.Min = image.Point{}
+	dims := layout.Inset{Left: 8, Right: 8, Top: 4, Bottom: 4}.Layout(gtx, func(gtx C) D { return u.text(gtx, u.tip, textCol) })
+	call := m.Stop()
+
+	win := gtx.Constraints.Max
+	pos := u.mouse.Round().Add(image.Pt(gtx.Dp(12), gtx.Dp(20)))
+	pos.X = max(0, min(pos.X, win.X-dims.Size.X))
+	if pos.Y+dims.Size.Y > win.Y {
+		pos.Y = u.mouse.Round().Y - dims.Size.Y - gtx.Dp(8)
+	}
+	defer op.Offset(pos).Push(gtx.Ops).Pop()
+	r := clip.UniformRRect(image.Rectangle{Max: dims.Size}, gtx.Dp(4))
+	paint.FillShape(gtx.Ops, tipBg, r.Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, btnActive, clip.Stroke{Path: r.Path(gtx.Ops), Width: 1}.Op())
+	call.Add(gtx.Ops)
 }
 
 // withKey formats a tooltip with the key bound to act.
@@ -323,8 +388,8 @@ func (u *UI) withKey(tip, act string) string {
 	return tip
 }
 
-// button draws a flat button with label, or with content if given.
-func (u *UI) button(gtx C, b *widget.Clickable, label string, active bool, tip string, content ...layout.Widget) D {
+// button draws content as a flat button, highlighted when active or hovered.
+func (u *UI) button(gtx C, b *widget.Clickable, active bool, tip string, content layout.Widget) D {
 	if b.Hovered() && tip != "" {
 		u.tip = tip
 	}
@@ -338,25 +403,45 @@ func (u *UI) button(gtx C, b *widget.Clickable, label string, active bool, tip s
 				case b.Hovered():
 					bg = btnHover
 				}
-				paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, gtx.Dp(3)).Op(gtx.Ops))
+				paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, gtx.Dp(4)).Op(gtx.Ops))
 				return D{Size: gtx.Constraints.Min}
 			},
-			func(gtx C) D {
-				if len(content) > 0 {
-					return layout.Inset{Left: 7, Right: 7, Top: 4, Bottom: 4}.Layout(gtx, content[0])
-				}
-				return u.label(gtx, label, textCol)
-			},
+			content,
 		)
 	})
 }
 
+// iconButton is a button showing ic at size dp.
+func (u *UI) iconButton(gtx C, b *widget.Clickable, ic icon, size unit.Dp, active bool, tip string) D {
+	return u.button(gtx, b, active, tip, func(gtx C) D {
+		return layout.UniformInset(7).Layout(gtx, func(gtx C) D {
+			sz := gtx.Dp(size)
+			col := textCol
+			if active {
+				col = activeCol
+			}
+			ic(gtx, sz, col)
+			return D{Size: image.Pt(sz, sz)}
+		})
+	})
+}
+
+// textButton is a button showing label.
+func (u *UI) textButton(gtx C, b *widget.Clickable, label string, active bool, tip string) D {
+	return u.button(gtx, b, active, tip, func(gtx C) D {
+		return layout.Inset{Left: 10, Right: 10, Top: 7, Bottom: 7}.Layout(gtx, func(gtx C) D {
+			return u.text(gtx, label, textCol)
+		})
+	})
+}
+
+// label is padded text, sized like a button.
 func (u *UI) label(gtx C, s string, c color.NRGBA) D {
-	return layout.Inset{Left: 7, Right: 7, Top: 4, Bottom: 4}.Layout(gtx, func(gtx C) D { return u.text(gtx, s, c) })
+	return layout.Inset{Left: 10, Right: 10, Top: 7, Bottom: 7}.Layout(gtx, func(gtx C) D { return u.text(gtx, s, c) })
 }
 
 func (u *UI) text(gtx C, s string, c color.NRGBA) D {
-	l := material.Body2(u.th, s)
+	l := material.Body1(u.th, s)
 	l.Color = c
 	l.MaxLines = 1
 	return l.Layout(gtx)
@@ -366,42 +451,67 @@ func (u *UI) swatch(gtx C, b *widget.Clickable, hex string) D {
 	if b.Hovered() {
 		u.tip = hex
 	}
-	return layout.UniformInset(3).Layout(gtx, func(gtx C) D {
-		return b.Layout(gtx, func(gtx C) D {
-			sz := gtx.Dp(18)
+	return b.Layout(gtx, func(gtx C) D {
+		return layout.UniformInset(6).Layout(gtx, func(gtx C) D {
+			sz := gtx.Dp(22)
 			r := image.Rectangle{Max: image.Pt(sz, sz)}
-			paint.FillShape(gtx.Ops, parseColor(hex), clip.UniformRRect(r, gtx.Dp(3)).Op(gtx.Ops))
+			rr := clip.UniformRRect(r, gtx.Dp(4))
+			paint.FillShape(gtx.Ops, parseColor(hex), rr.Op(gtx.Ops))
 			if hex == u.color || b.Hovered() {
 				c := dimCol
 				if hex == u.color {
-					c = textCol
+					c = activeCol
 				}
-				paint.FillShape(gtx.Ops, c, clip.Stroke{Path: clip.UniformRRect(r, gtx.Dp(3)).Path(gtx.Ops), Width: float32(gtx.Dp(2))}.Op())
+				paint.FillShape(gtx.Ops, c, clip.Stroke{Path: rr.Path(gtx.Ops), Width: float32(gtx.Dp(2))}.Op())
 			}
 			return D{Size: r.Max}
 		})
 	})
 }
 
-func spacer(gtx C) D { return D{Size: image.Pt(gtx.Dp(10), 0)} }
+// separator is a thin vertical rule between toolbar groups.
+func separator(gtx C) D {
+	w, h := gtx.Dp(13), gtx.Dp(34)
+	x, pad := gtx.Dp(6), gtx.Dp(8)
+	paint.FillShape(gtx.Ops, btnHover, clip.Rect{Min: image.Pt(x, pad), Max: image.Pt(x+max(1, gtx.Dp(1)), h-pad)}.Op())
+	return D{Size: image.Pt(w, h)}
+}
 
-// flow lays out widgets left to right, wrapping to new rows as needed.
+// flow lays out widgets left to right, wrapping to new rows as needed and
+// centering each widget vertically in its row.
 func flow(gtx C, ws ...layout.Widget) D {
 	gtx.Constraints.Min = image.Point{}
 	maxW := gtx.Constraints.Max.X
-	var x, y, rowH int
-	for _, w := range ws {
+	type item struct {
+		call op.CallOp
+		pos  image.Point
+		size image.Point
+		row  int
+	}
+	items := make([]item, len(ws))
+	var rowH []int
+	x, y := 0, 0
+	for i, w := range ws {
 		m := op.Record(gtx.Ops)
 		dims := w(gtx)
-		call := m.Stop()
+		items[i].call, items[i].size = m.Stop(), dims.Size
 		if x > 0 && x+dims.Size.X > maxW {
-			x, y, rowH = 0, y+rowH, 0
+			x, y = 0, y+rowH[len(rowH)-1]
 		}
-		t := op.Offset(image.Pt(x, y)).Push(gtx.Ops)
-		call.Add(gtx.Ops)
-		t.Pop()
+		if x == 0 {
+			rowH = append(rowH, 0)
+		}
+		items[i].pos, items[i].row = image.Pt(x, y), len(rowH)-1
 		x += dims.Size.X
-		rowH = max(rowH, dims.Size.Y)
+		rowH[len(rowH)-1] = max(rowH[len(rowH)-1], dims.Size.Y)
 	}
-	return D{Size: image.Pt(maxW, y+rowH)}
+	for _, it := range items {
+		t := op.Offset(it.pos.Add(image.Pt(0, (rowH[it.row]-it.size.Y)/2))).Push(gtx.Ops)
+		it.call.Add(gtx.Ops)
+		t.Pop()
+	}
+	if len(rowH) == 0 {
+		return D{Size: image.Pt(maxW, 0)}
+	}
+	return D{Size: image.Pt(maxW, y+rowH[len(rowH)-1])}
 }

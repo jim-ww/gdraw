@@ -118,7 +118,7 @@ func (u *UI) layoutPrompt(gtx C) D {
 		layout.Rigid(func(gtx C) D {
 			items := make([]layout.FlexChild, len(p.choices))
 			for i, c := range p.choices {
-				items[i] = layout.Rigid(func(gtx C) D { return u.button(gtx, &p.picks[i], c, false, "") })
+				items[i] = layout.Rigid(func(gtx C) D { return u.textButton(gtx, &p.picks[i], c, false, "") })
 			}
 			return layout.Inset{Left: 8, Bottom: 4}.Layout(gtx, func(gtx C) D {
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx, items...)
@@ -141,8 +141,8 @@ func (u *UI) layoutPromptBar(gtx C, p *prompt) D {
 				}
 				if p.confirm != nil {
 					items = append(items,
-						layout.Rigid(func(gtx C) D { return u.button(gtx, &p.yes, "yes (y)", false, "") }),
-						layout.Rigid(func(gtx C) D { return u.button(gtx, &p.no, "no (n)", false, "") }),
+						layout.Rigid(func(gtx C) D { return u.textButton(gtx, &p.yes, "yes (y)", false, "") }),
+						layout.Rigid(func(gtx C) D { return u.textButton(gtx, &p.no, "no (n)", false, "") }),
 					)
 				} else {
 					items = append(items, layout.Flexed(1, func(gtx C) D {

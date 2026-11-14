@@ -161,14 +161,14 @@ func (u *UI) layoutNumField(gtx C, f *numField, s numFieldSpec) D {
 	}
 
 	m := op.Record(gtx.Ops)
-	dims := layout.Inset{Left: 7, Right: 7, Top: 4, Bottom: 4}.Layout(gtx, func(gtx C) D {
+	dims := layout.Inset{Left: 10, Right: 10, Top: 7, Bottom: 7}.Layout(gtx, func(gtx C) D {
 		return layout.Flex{Alignment: layout.Baseline}.Layout(gtx,
 			layout.Rigid(func(gtx C) D { return u.text(gtx, s.label+" ", dimCol) }),
 			layout.Rigid(func(gtx C) D {
 				if !f.editing {
 					return u.text(gtx, strconv.FormatFloat(s.value, 'f', -1, 64)+s.unit, textCol)
 				}
-				gtx.Constraints.Min.X = gtx.Dp(36)
+				gtx.Constraints.Min.X = gtx.Dp(40)
 				ed := material.Editor(u.th, &f.ed, "")
 				ed.TextSize = u.th.TextSize
 				return ed.Layout(gtx)
@@ -185,7 +185,7 @@ func (u *UI) layoutNumField(gtx C, f *numField, s numFieldSpec) D {
 	case f.hovered || f.pressed:
 		bg = btnHover
 	}
-	paint.FillShape(gtx.Ops, bg, clip.UniformRRect(r, gtx.Dp(3)).Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, bg, clip.UniformRRect(r, gtx.Dp(4)).Op(gtx.Ops))
 	area := clip.Rect(r).Push(gtx.Ops)
 	event.Op(gtx.Ops, f)
 	if !f.editing {
