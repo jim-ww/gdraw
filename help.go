@@ -20,6 +20,7 @@ var mouseHelp = [][2]string{
 	{"middle drag", "pan"},
 	{"space+drag", "pan"},
 	{"ctrl+drag", "45° lines, square shapes"},
+	{"scroll on number", "change size or zoom"},
 }
 
 func (u *UI) handleHelpKeys(gtx C) {

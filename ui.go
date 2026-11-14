@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"math"
 	"time"
 
 	"gioui.org/f32"
@@ -62,6 +63,9 @@ type UI struct {
 
 	nextAutosave time.Time
 
+	sizeField numField
+	zoomField numField
+
 	drag      drag
 	pan       panState
 	prompt    *prompt
@@ -80,8 +84,7 @@ type UI struct {
 		swatches []widget.Clickable
 		tabs     []tabButtons
 		newTab   widget.Clickable
-		sizeDec  widget.Clickable
-		sizeInc  widget.Clickable
+		actions  map[string]*widget.Clickable
 		color    widget.Clickable
 		filled   widget.Clickable
 		grid     widget.Clickable
@@ -132,6 +135,7 @@ func newUI(cfg Config) *UI {
 		u.status = fmt.Sprintf("found %s from an earlier session; run gdraw -restore to recover", plural(n, "unsaved drawing"))
 	}
 	u.btn.swatches = make([]widget.Clickable, len(u.palette))
+	u.btn.actions = make(map[string]*widget.Clickable)
 	if len(errs) > 0 {
 		u.status = fmt.Sprintf("config keys: %v", errors.Join(errs...))
 	}
@@ -202,7 +206,15 @@ func (u *UI) layoutTabs(gtx C) D {
 }
 
 func (u *UI) layoutToolbar(gtx C) D {
-	var items []layout.Widget
+	items := []layout.Widget{
+		u.actionButton(gtx, "open", "open"),
+		u.actionButton(gtx, "save", "save"),
+		u.actionButton(gtx, "export", "export"),
+		spacer,
+		u.actionButton(gtx, "undo", "undo"),
+		u.actionButton(gtx, "redo", "redo"),
+		spacer,
+	}
 	for t := range numTools {
 		b := &u.btn.tools[t]
 		if b.Clicked(gtx) {
@@ -223,35 +235,70 @@ func (u *UI) layoutToolbar(gtx C) D {
 	if u.btn.color.Clicked(gtx) {
 		u.pickColor()
 	}
-	items = append(items,
-		func(gtx C) D {
-			return u.button(gtx, &u.btn.color, u.color, false, u.withKey("pick color", "pick_color"))
-		},
-		spacer,
-	)
-
-	if u.btn.sizeDec.Clicked(gtx) {
-		u.setSize(u.size / sizeStep)
-	}
-	if u.btn.sizeInc.Clicked(gtx) {
-		u.setSize(u.size * sizeStep)
-	}
 	toggle := func(b *widget.Clickable, v *bool, label, act string) layout.Widget {
 		if b.Clicked(gtx) {
 			*v = !*v
 		}
 		return func(gtx C) D { return u.button(gtx, b, label, *v, u.withKey("toggle "+label, act)) }
 	}
+	const numTip = "scroll, drag sideways or click to type"
 	items = append(items,
-		func(gtx C) D { return u.button(gtx, &u.btn.sizeDec, "−", false, u.withKey("size down", "size_dec")) },
-		func(gtx C) D { return u.label(gtx, fmt.Sprintf("%g", u.size), textCol) },
-		func(gtx C) D { return u.button(gtx, &u.btn.sizeInc, "+", false, u.withKey("size up", "size_inc")) },
+		func(gtx C) D { return u.colorButton(gtx) },
+		spacer,
+		u.actionButton(gtx, "size_dec", "−"),
+		func(gtx C) D {
+			return u.layoutNumField(gtx, &u.sizeField, numFieldSpec{
+				label: "size", value: u.size, tip: "brush size: " + numTip,
+				step: func(n int) { u.setSize(u.size * math.Pow(sizeStep, float64(n))) },
+				set:  u.setSize,
+			})
+		},
+		u.actionButton(gtx, "size_inc", "+"),
+		spacer,
+		u.actionButton(gtx, "zoom_out", "−"),
+		func(gtx C) D {
+			return u.layoutNumField(gtx, &u.zoomField, numFieldSpec{
+				label: "zoom", value: math.Round(u.doc().Zoom * 100), unit: "%", tip: "zoom: " + numTip,
+				step: func(n int) { u.zoomAtCursor(math.Pow(zoomStep, float64(n))) },
+				set:  func(v float64) { u.zoomAtCursor(v / 100 / u.doc().Zoom) },
+			})
+		},
+		u.actionButton(gtx, "zoom_in", "+"),
 		spacer,
 		toggle(&u.btn.filled, &u.filled, "filled", "toggle_fill"),
 		toggle(&u.btn.grid, &u.grid, "grid", "toggle_grid"),
 		toggle(&u.btn.snap, &u.snap, "snap", "toggle_snap"),
 	)
 	return flow(gtx, items...)
+}
+
+// actionButton returns a toolbar button that runs the named action.
+func (u *UI) actionButton(gtx C, name, label string) layout.Widget {
+	b := u.btn.actions[name]
+	if b == nil {
+		b = new(widget.Clickable)
+		u.btn.actions[name] = b
+	}
+	a, _ := u.keymap.action(name)
+	if b.Clicked(gtx) && a.run != nil {
+		a.run(u)
+	}
+	return func(gtx C) D { return u.button(gtx, b, label, false, u.withKey(a.help, name)) }
+}
+
+// colorButton shows the current color; clicking it asks for a hex value.
+func (u *UI) colorButton(gtx C) D {
+	b := &u.btn.color
+	return u.button(gtx, b, "", false, u.withKey("pick color", "pick_color"), func(gtx C) D {
+		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+			layout.Rigid(func(gtx C) D {
+				sz := gtx.Dp(10)
+				paint.FillShape(gtx.Ops, parseColor(u.color), clip.Ellipse{Max: image.Pt(sz, sz)}.Op(gtx.Ops))
+				return D{Size: image.Pt(sz+gtx.Dp(5), sz)}
+			}),
+			layout.Rigid(func(gtx C) D { return u.text(gtx, u.color, textCol) }),
+		)
+	})
 }
 
 func (u *UI) layoutStatus(gtx C) D {
@@ -276,7 +323,8 @@ func (u *UI) withKey(tip, act string) string {
 	return tip
 }
 
-func (u *UI) button(gtx C, b *widget.Clickable, label string, active bool, tip string) D {
+// button draws a flat button with label, or with content if given.
+func (u *UI) button(gtx C, b *widget.Clickable, label string, active bool, tip string, content ...layout.Widget) D {
 	if b.Hovered() && tip != "" {
 		u.tip = tip
 	}
@@ -293,7 +341,12 @@ func (u *UI) button(gtx C, b *widget.Clickable, label string, active bool, tip s
 				paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, gtx.Dp(3)).Op(gtx.Ops))
 				return D{Size: gtx.Constraints.Min}
 			},
-			func(gtx C) D { return u.label(gtx, label, textCol) },
+			func(gtx C) D {
+				if len(content) > 0 {
+					return layout.Inset{Left: 7, Right: 7, Top: 4, Bottom: 4}.Layout(gtx, content[0])
+				}
+				return u.label(gtx, label, textCol)
+			},
 		)
 	})
 }

@@ -214,6 +214,16 @@ func (km *keymap) lookup(e key.Event) (action, bool) {
 	return action{}, false
 }
 
+// action returns the named action.
+func (km *keymap) action(name string) (action, bool) {
+	for _, a := range km.actions {
+		if a.name == name {
+			return a, true
+		}
+	}
+	return action{}, false
+}
+
 // keysFor returns the first key bound to the named action, for tooltips.
 func (km *keymap) keysFor(name string) string {
 	for i, a := range km.actions {
@@ -225,7 +235,7 @@ func (km *keymap) keysFor(name string) string {
 }
 
 func (u *UI) handleKeys(gtx layout.Context) {
-	if u.modal() || u.help {
+	if u.modal() || u.help || u.editingNumber() {
 		u.spaceDown = false
 	}
 	switch {
@@ -237,6 +247,8 @@ func (u *UI) handleKeys(gtx layout.Context) {
 		return
 	case u.help:
 		u.handleHelpKeys(gtx)
+		return
+	case u.editingNumber():
 		return
 	}
 	for {
