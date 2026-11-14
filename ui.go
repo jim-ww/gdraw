@@ -39,10 +39,11 @@ var defaultPalette = []string{
 
 // UI is the whole application state.
 type UI struct {
-	th     *material.Theme
-	keymap *keymap
-	render renderer
-	scene  scene
+	th        *material.Theme
+	keymap    *keymap
+	render    renderer
+	scene     scene
+	gridCache grid
 
 	tabs     []*Document
 	active   int

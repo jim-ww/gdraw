@@ -135,6 +135,7 @@ func (u *UI) toolDrag(p Point, constrain bool) {
 		pts := u.drag.edit.Points
 		if distance(pts[len(pts)-1], p) >= u.worldTol(minStrokeStep) {
 			u.drag.edit.Points = append(pts, p)
+			u.drag.edit.touch()
 		}
 	case ToolLine, ToolArrow, ToolRect, ToolCircle:
 		e := u.drag.edit
@@ -142,6 +143,7 @@ func (u *UI) toolDrag(p Point, constrain bool) {
 			p = constrainPoint(e.Kind, e.Points[0], p)
 		}
 		e.Points[1] = u.snapPoint(p)
+		e.touch()
 	case ToolEraser:
 		u.eraseAt(p)
 	case ToolMove:
@@ -151,6 +153,10 @@ func (u *UI) toolDrag(p Point, constrain bool) {
 		if !u.drag.changed {
 			d.BeginChange()
 			u.drag.changed = true
+			for i, e := range u.drag.targets {
+				u.drag.targets[i] = d.own(e)
+			}
+			u.hover = nil
 		}
 		delta := p.Sub(u.drag.last)
 		for _, e := range u.drag.targets {
@@ -185,7 +191,7 @@ func (u *UI) eraseAt(p Point) {
 	r := u.eraserRadius()
 	kept := make([]*Edit, 0, len(d.Edits))
 	for _, e := range d.Edits {
-		if e.Kind == KindFill || e.Distance(p) > r {
+		if e.Kind == KindFill || !e.near(p, r) || e.Distance(p) > r {
 			kept = append(kept, e)
 		}
 	}
@@ -225,7 +231,7 @@ func (u *UI) selectRect(a, b Point) {
 func (u *UI) editAt(p Point, tol float64) *Edit {
 	d := u.doc()
 	for i := len(d.Edits) - 1; i >= 0; i-- {
-		if e := d.Edits[i]; e.Kind != KindFill && e.Distance(p) <= tol {
+		if e := d.Edits[i]; e.Kind != KindFill && e.near(p, tol) && e.Distance(p) <= tol {
 			return e
 		}
 	}

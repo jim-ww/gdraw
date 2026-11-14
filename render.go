@@ -23,40 +23,81 @@ const (
 
 func fpt(p Point) f32.Point { return f32.Pt(float32(p.X), float32(p.Y)) }
 
-// scene caches the recorded drawing ops of a document, so frames that only
-// move the cursor replay them instead of rebuilding every path.
+// scene draws documents from per-edit recorded ops. Each edit's ops
+// survive until the edit changes, so frames only replay them and Gio can
+// reuse its tessellated paths.
 type scene struct {
-	ops  op.Ops
-	call op.CallOp
-	doc  *Document
-	ver  int
-	skip *Edit
+	doc *Document
+	ver int
 }
 
-// draw adds d's edits (minus skip, which is drawn live while being dragged)
-// in world coordinates, rebuilding the cached ops only when d changed.
-func (s *scene) draw(ops *op.Ops, r *renderer, d *Document, skip *Edit) {
-	if s.doc != d || s.ver != d.Version || s.skip != skip {
-		s.doc, s.ver, s.skip = d, d.Version, skip
+// editOps is the recorded drawing of one edit in one color.
+type editOps struct {
+	ops   op.Ops
+	call  op.CallOp
+	rev   uint64
+	color string
+}
+
+// draw adds d's edits visible in view (a world rectangle) in world
+// coordinates, except skip, which the caller draws live while it's being
+// dragged.
+func (s *scene) draw(ops *op.Ops, r *renderer, d *Document, skip *Edit, view [2]Point) {
+	if s.doc != d || s.ver != d.Version {
+		s.doc, s.ver = d, d.Version
+		s.prune(d)
 		r.fills.prune()
-		s.ops.Reset()
-		m := op.Record(&s.ops)
-		// Fills go first, underneath the ink that encloses them.
-		for _, fills := range []bool{true, false} {
-			for _, e := range d.Edits {
-				if e == skip || (e.Kind == KindFill) != fills {
-					continue
-				}
-				c := e.Color
-				if e.Selected {
-					c = selectColor
-				}
-				r.drawEdit(&s.ops, d, e, c)
-			}
-		}
-		s.call = m.Stop()
 	}
-	s.call.Add(ops)
+	// Fills go first, underneath the ink that encloses them.
+	for _, fills := range []bool{true, false} {
+		for _, e := range d.Edits {
+			if e == skip || (e.Kind == KindFill) != fills || !intersects(e, view) {
+				continue
+			}
+			c := e.Color
+			if e.Selected {
+				c = selectColor
+			}
+			r.recorded(d, e, c).Add(ops)
+		}
+	}
+}
+
+// prune drops the cached ops of edits no longer in d.
+func (s *scene) prune(d *Document) {
+	if len(d.ops) <= len(d.Edits) {
+		return
+	}
+	live := make(map[int]bool, len(d.Edits))
+	for _, e := range d.Edits {
+		live[e.ID] = true
+	}
+	for id := range d.ops {
+		if !live[id] {
+			delete(d.ops, id)
+		}
+	}
+}
+
+// recorded returns e's ops in color c, recording them if e changed. They
+// are keyed by ID, so the clones that undo restores reuse them too.
+func (r *renderer) recorded(d *Document, e *Edit, c string) op.CallOp {
+	if d.ops == nil {
+		d.ops = make(map[int]*editOps)
+	}
+	eo := d.ops[e.ID]
+	if eo == nil {
+		eo = new(editOps)
+		d.ops[e.ID] = eo
+	}
+	if eo.rev != e.rev || eo.color != c || e.rev == 0 {
+		eo.rev, eo.color = e.rev, c
+		eo.ops.Reset()
+		m := op.Record(&eo.ops)
+		r.drawEdit(&eo.ops, d, e, c)
+		eo.call = m.Stop()
+	}
+	return eo.call
 }
 
 // renderer draws edits as Gio ops in world coordinates.

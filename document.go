@@ -1,6 +1,9 @@
 package main
 
-import "path/filepath"
+import (
+	"path/filepath"
+	"slices"
+)
 
 // Document is one canvas: its edits plus view and undo state.
 type Document struct {
@@ -15,7 +18,8 @@ type Document struct {
 
 	nextID     int
 	history    history
-	autosaveID string // names the recovery file, see autosave.go
+	ops        map[int]*editOps // render cache, see scene
+	autosaveID string           // names the recovery file, see autosave.go
 }
 
 // NewDocument returns an empty, untitled document.
@@ -47,6 +51,7 @@ func (d *Document) Touch() { d.Version++ }
 // Add appends e with a fresh ID.
 func (d *Document) Add(e *Edit) {
 	e.ID = d.NextID()
+	e.touch()
 	d.Edits = append(d.Edits, e)
 	d.Touch()
 }
@@ -81,15 +86,21 @@ func (d *Document) restore(step func([]*Edit) ([]*Edit, bool)) {
 	}
 }
 
-func (d *Document) snapshot() []*Edit {
-	s := make([]*Edit, len(d.Edits))
-	for i, e := range d.Edits {
-		s[i] = e.Clone()
+// snapshot returns the current edit list for history. Edits are shared
+// with it, so an edit already in d must be replaced by a copy (see own)
+// before its geometry changes.
+func (d *Document) snapshot() []*Edit { return slices.Clone(d.Edits) }
+
+// own replaces e in d with a copy that's safe to mutate and returns it.
+func (d *Document) own(e *Edit) *Edit {
+	c := e.Clone()
+	if i := slices.Index(d.Edits, e); i >= 0 {
+		d.Edits[i] = c
 	}
-	return s
+	return c
 }
 
-// history is a snapshot-based undo/redo stack.
+// history is an undo/redo stack of edit lists.
 type history struct {
 	past, future [][]*Edit
 }
@@ -127,4 +138,22 @@ func (d *Document) fillAt(p Point) *Edit {
 		}
 	}
 	return nil
+}
+
+// adopt takes loaded edits into d: it gives them unique IDs, starts their
+// revisions and computes missing fill areas.
+func (d *Document) adopt(edits []*Edit) {
+	seen := make(map[int]bool)
+	for _, e := range edits {
+		d.nextID = max(d.nextID, e.ID)
+	}
+	for _, e := range edits {
+		if seen[e.ID] {
+			e.ID = d.NextID()
+		}
+		seen[e.ID] = true
+		e.touch()
+	}
+	bakeFills(edits)
+	d.Edits = edits
 }

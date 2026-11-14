@@ -78,7 +78,8 @@ func (u *UI) layoutCanvas(gtx layout.Context) layout.Dimensions {
 	d := u.doc()
 	s := float32(u.scale())
 	view := op.Affine(f32.AffineId().Offset(fpt(d.Offset).Mul(-1)).Scale(f32.Point{}, f32.Pt(s, s))).Push(gtx.Ops)
-	u.scene.draw(gtx.Ops, &u.render, d, u.drag.edit)
+	visible := [2]Point{u.toWorld(f32.Point{}), u.toWorld(layout.FPt(size))}
+	u.scene.draw(gtx.Ops, &u.render, d, u.drag.edit, visible)
 	if e := u.drag.edit; e != nil {
 		u.render.drawEdit(gtx.Ops, d, e, e.Color)
 	}
@@ -170,6 +171,15 @@ func (u *UI) canvasEvents(gtx layout.Context) {
 	}
 }
 
+// grid caches the dot pattern for one zoom level and canvas size. Panning
+// only shifts it.
+type grid struct {
+	ops  op.Ops
+	call op.CallOp
+	step float64 // screen pixels between dots
+	size image.Point
+}
+
 // drawGrid draws a dot grid whose spacing adapts to the zoom level.
 func (u *UI) drawGrid(ops *op.Ops, size image.Point) {
 	s := u.scale()
@@ -181,19 +191,29 @@ func (u *UI) drawGrid(ops *op.Ops, size image.Point) {
 	for step*s >= 4*minPx {
 		step /= 2
 	}
-	o := u.doc().Offset
-	r := float32(max(1, float64(u.pxPerDp)))
-	var p clip.Path
-	p.Begin(ops)
-	for wx := math.Ceil(o.X/step) * step; (wx-o.X)*s < float64(size.X); wx += step {
-		for wy := math.Ceil(o.Y/step) * step; (wy-o.Y)*s < float64(size.Y); wy += step {
-			c := f32.Pt(float32((wx-o.X)*s), float32((wy-o.Y)*s))
-			p.MoveTo(c)
-			p.LineTo(c.Add(f32.Pt(r, 0)))
-			p.LineTo(c.Add(f32.Pt(r, r)))
-			p.LineTo(c.Add(f32.Pt(0, r)))
-			p.Close()
+	g := &u.gridCache
+	if px := step * s; g.step != px || g.size != size {
+		g.step, g.size = px, size
+		g.ops.Reset()
+		m := op.Record(&g.ops)
+		r := float32(max(1, float64(u.pxPerDp)))
+		var p clip.Path
+		p.Begin(&g.ops)
+		for x := 0.0; x < float64(size.X)+px; x += px {
+			for y := 0.0; y < float64(size.Y)+px; y += px {
+				c := f32.Pt(float32(x), float32(y))
+				p.MoveTo(c)
+				p.LineTo(c.Add(f32.Pt(r, 0)))
+				p.LineTo(c.Add(f32.Pt(r, r)))
+				p.LineTo(c.Add(f32.Pt(0, r)))
+				p.Close()
+			}
 		}
+		paint.FillShape(&g.ops, gridColor, clip.Outline{Path: p.End()}.Op())
+		g.call = m.Stop()
 	}
-	paint.FillShape(ops, gridColor, clip.Outline{Path: p.End()}.Op())
+	o := u.doc().Offset
+	phase := func(v float64) float32 { return float32((math.Ceil(v/step)*step - v) * s) }
+	defer op.Affine(f32.AffineId().Offset(f32.Pt(phase(o.X), phase(o.Y)))).Push(ops).Pop()
+	g.call.Add(ops)
 }

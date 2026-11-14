@@ -79,12 +79,9 @@ func loadRecovery(path string) (*Document, error) {
 		return nil, err
 	}
 	d := NewDocument()
-	d.Path, d.Edits, d.Dirty = f.Path, f.Edits, true
-	bakeFills(d.Edits)
+	d.Path, d.Dirty = f.Path, true
+	d.adopt(f.Edits)
 	d.autosaveID = filepath.Base(path[:len(path)-len(filepath.Ext(path))])
-	for _, e := range d.Edits {
-		d.nextID = max(d.nextID, e.ID)
-	}
 	return d, nil
 }
 

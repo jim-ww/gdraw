@@ -7,7 +7,7 @@ func TestUndoRedo(t *testing.T) {
 	d.BeginChange()
 	d.Add(&Edit{Kind: KindLine, Points: []Point{{0, 0}, {10, 0}}})
 	d.BeginChange()
-	d.Edits[0].Translate(Point{5, 5})
+	d.own(d.Edits[0]).Translate(Point{5, 5})
 
 	d.Undo()
 	if got := d.Edits[0].Points[0]; got != (Point{0, 0}) {

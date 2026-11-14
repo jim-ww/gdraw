@@ -1,6 +1,9 @@
 package main
 
-import "math"
+import (
+	"math"
+	"sync/atomic"
+)
 
 // Kind identifies the shape of an Edit.
 type Kind string
@@ -39,7 +42,20 @@ type Edit struct {
 	Area *FillArea `json:"area,omitempty"` // fills only
 
 	Selected bool `json:"-"`
+
+	// rev identifies the current geometry; caches keyed by it stay valid
+	// until touch is called. Clones share it, as they share the geometry.
+	rev    uint64
+	bounds struct {
+		rev    uint64
+		lo, hi Point
+	}
 }
+
+var revs atomic.Uint64
+
+// touch records that e's geometry changed. Call it after every mutation.
+func (e *Edit) touch() { e.rev = revs.Add(1) }
 
 // Clone returns a deep copy of e.
 func (e *Edit) Clone() *Edit {
@@ -60,10 +76,27 @@ func (e *Edit) Translate(d Point) {
 	if e.Area != nil {
 		e.Area.Origin = e.Area.Origin.Add(d)
 	}
+	e.touch()
 }
 
 // Bounds returns e's bounding box, including stroke width.
 func (e *Edit) Bounds() (lo, hi Point) {
+	if e.rev != 0 && e.bounds.rev == e.rev {
+		return e.bounds.lo, e.bounds.hi
+	}
+	lo, hi = e.computeBounds()
+	e.bounds.rev, e.bounds.lo, e.bounds.hi = e.rev, lo, hi
+	return lo, hi
+}
+
+// near reports whether p is within tol of e's bounding box, a cheap
+// test to run before Distance.
+func (e *Edit) near(p Point, tol float64) bool {
+	lo, hi := e.Bounds()
+	return p.X >= lo.X-tol && p.X <= hi.X+tol && p.Y >= lo.Y-tol && p.Y <= hi.Y+tol
+}
+
+func (e *Edit) computeBounds() (lo, hi Point) {
 	if e.Area != nil {
 		return e.Area.bounds()
 	}
