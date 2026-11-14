@@ -225,6 +225,9 @@ func (km *keymap) keysFor(name string) string {
 }
 
 func (u *UI) handleKeys(gtx layout.Context) {
+	if u.modal() || u.help {
+		u.spaceDown = false
+	}
 	switch {
 	case u.prompt != nil:
 		u.handlePromptKeys(gtx)

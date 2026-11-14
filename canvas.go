@@ -155,12 +155,15 @@ func (u *UI) canvasEvents(gtx layout.Context) {
 			} else if u.drag.active {
 				u.toolDrag(p, constrain)
 			}
-		case pointer.Release, pointer.Cancel:
+		case pointer.Release:
 			if u.pan.active {
 				u.pan.active = false
-			} else {
+			} else if !e.Buttons.Contain(pointer.ButtonPrimary) {
 				u.toolUp(p, constrain)
 			}
+		case pointer.Cancel:
+			u.pan.active = false
+			u.toolUp(u.drag.last, false)
 		case pointer.Move:
 			u.updateHover(p)
 		}
