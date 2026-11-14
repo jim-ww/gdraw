@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"gioui.org/app"
+	"gioui.org/io/system"
 	"gioui.org/op"
 	"gioui.org/unit"
 )
@@ -27,7 +28,7 @@ func main() {
 	go func() {
 		w := new(app.Window)
 		w.Option(app.Title("gdraw"), app.Size(unit.Dp(1200), unit.Dp(800)))
-		u := newUI(w, cfg)
+		u := newUI(cfg)
 		if *restore {
 			u.restore()
 		}
@@ -44,6 +45,7 @@ func main() {
 
 func run(w *app.Window, u *UI) error {
 	var ops op.Ops
+	var title string
 	for {
 		switch e := w.Event().(type) {
 		case app.DestroyEvent:
@@ -55,6 +57,15 @@ func run(w *app.Window, u *UI) error {
 			gtx := app.NewContext(&ops, e)
 			u.Layout(gtx)
 			e.Frame(gtx.Ops)
+			// Window methods wait for the native event loop, which is
+			// blocked during a frame, so they run only after it.
+			if t := u.windowTitle(); t != title {
+				title = t
+				w.Option(app.Title(t))
+			}
+			if u.quitting {
+				w.Perform(system.ActionClose)
+			}
 		}
 	}
 }

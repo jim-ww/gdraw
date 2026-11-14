@@ -7,7 +7,6 @@ import (
 	"image/color"
 	"time"
 
-	"gioui.org/app"
 	"gioui.org/f32"
 	"gioui.org/font/gofont"
 	"gioui.org/layout"
@@ -40,26 +39,25 @@ var defaultPalette = []string{
 
 // UI is the whole application state.
 type UI struct {
-	win    *app.Window
 	th     *material.Theme
 	keymap *keymap
 	render renderer
 	scene  scene
 
-	tabs    []*Document
-	active  int
-	tool    Tool
-	color   string
-	size    float64
-	filled  bool
-	grid    bool
-	snap    bool
-	palette []string
-	recent  []string
-	status  string
-	tip     string
-	title   string
-	help    bool
+	tabs     []*Document
+	active   int
+	tool     Tool
+	color    string
+	size     float64
+	filled   bool
+	grid     bool
+	snap     bool
+	palette  []string
+	recent   []string
+	status   string
+	tip      string
+	quitting bool // close the window after this frame
+	help     bool
 
 	nextAutosave time.Time
 
@@ -97,14 +95,13 @@ type panState struct {
 	last   f32.Point
 }
 
-func newUI(w *app.Window, cfg Config) *UI {
+func newUI(cfg Config) *UI {
 	th := material.NewTheme()
 	th.Shaper = text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
 	th.Palette = material.Palette{Bg: barBg, Fg: textCol, ContrastBg: btnActive, ContrastFg: textCol}
 	th.TextSize = 13
 	km, errs := newKeymap(defaultActions(), cfg.Keys)
 	u := &UI{
-		win:     w,
 		th:      th,
 		keymap:  km,
 		render:  renderer{shaper: th.Shaper},
@@ -166,12 +163,11 @@ func (u *UI) Layout(gtx C) D {
 		layout.Rigid(u.layoutPrompt),
 		layout.Rigid(u.layoutStatus),
 	)
-	if t := "gdraw - " + u.doc().Title(); t != u.title {
-		u.title = t
-		u.win.Option(app.Title(t))
-	}
 	return dims
 }
+
+// windowTitle is the title the window should show.
+func (u *UI) windowTitle() string { return "gdraw - " + u.doc().Title() }
 
 func (u *UI) layoutTabs(gtx C) D {
 	for len(u.btn.tabs) < len(u.tabs) {

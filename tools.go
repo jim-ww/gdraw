@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"math"
 	"slices"
-
-	"gioui.org/io/system"
 )
 
 // Tool is the active drawing tool.
@@ -332,7 +330,7 @@ func (u *UI) clearCanvas() {
 	u.status = "cleared (undo to restore)"
 }
 
-func (u *UI) quit() { u.win.Perform(system.ActionClose) }
+func (u *UI) quit() { u.quitting = true }
 
 func (u *UI) newTab() {
 	u.commitText()
