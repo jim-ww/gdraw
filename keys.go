@@ -7,7 +7,6 @@ import (
 
 	"gioui.org/io/event"
 	"gioui.org/io/key"
-	"gioui.org/io/system"
 	"gioui.org/layout"
 )
 
@@ -30,6 +29,7 @@ func defaultActions() []action {
 		toolAction(ToolArrow, "a"),
 		toolAction(ToolRect, "r"),
 		toolAction(ToolCircle, "c"),
+		toolAction(ToolText, "t"),
 		toolAction(ToolEraser, "e"),
 		toolAction(ToolSelect, "s"),
 		toolAction(ToolMove, "m"),
@@ -45,6 +45,7 @@ func defaultActions() []action {
 		{"paste", "paste", []string{"ctrl+v"}, (*UI).paste},
 		{"clear", "clear canvas", []string{"ctrl+delete"}, (*UI).clearCanvas},
 
+		{"pick_color", "pick color by hex", []string{"p"}, (*UI).pickColor},
 		{"toggle_fill", "toggle filled shapes", []string{"ctrl+f"}, func(u *UI) { u.filled = !u.filled }},
 		{"toggle_grid", "toggle grid", []string{"g"}, func(u *UI) { u.grid = !u.grid }},
 		{"toggle_snap", "toggle snap to grid", []string{"n"}, func(u *UI) { u.snap = !u.snap }},
@@ -59,12 +60,15 @@ func defaultActions() []action {
 		{"pan_left", "pan left", []string{"left"}, func(u *UI) { u.panBy(-panStep, 0) }},
 		{"pan_right", "pan right", []string{"right"}, func(u *UI) { u.panBy(panStep, 0) }},
 
+		{"open", "open", []string{"ctrl+o"}, (*UI).open},
+		{"save", "save", []string{"ctrl+s"}, (*UI).save},
+		{"save_as", "save as", []string{"ctrl+shift+s"}, (*UI).saveAs},
 		{"new_tab", "new tab", []string{"ctrl+t", "ctrl+n"}, (*UI).newTab},
-		{"close_tab", "close tab", []string{"ctrl+w"}, func(u *UI) { u.closeTab(u.active) }},
+		{"close_tab", "close tab", []string{"ctrl+w"}, func(u *UI) { u.requestCloseTab(u.active) }},
 		{"next_tab", "next tab", []string{"tab"}, func(u *UI) { u.selectTab(u.active + 1) }},
 		{"prev_tab", "previous tab", []string{"shift+tab"}, func(u *UI) { u.selectTab(u.active - 1) }},
 
-		{"quit", "quit", []string{"ctrl+q"}, func(u *UI) { u.win.Perform(system.ActionClose) }},
+		{"quit", "quit", []string{"ctrl+q"}, (*UI).requestQuit},
 	}
 	for i := range 9 {
 		acts = append(acts, action{
@@ -218,6 +222,14 @@ func (km *keymap) keysFor(name string) string {
 }
 
 func (u *UI) handleKeys(gtx layout.Context) {
+	switch {
+	case u.prompt != nil:
+		u.handlePromptKeys(gtx)
+		return
+	case u.typing.active:
+		u.handleTextKeys(gtx)
+		return
+	}
 	for {
 		ev, ok := gtx.Event(key.Filter{Name: key.NameSpace, Optional: key.ModShift | key.ModCtrl | key.ModAlt})
 		if !ok {

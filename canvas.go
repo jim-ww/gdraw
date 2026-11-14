@@ -111,6 +111,7 @@ func (u *UI) layoutCanvas(gtx layout.Context) layout.Dimensions {
 		cursor = pointer.CursorGrab
 	}
 	cursor.Add(gtx.Ops)
+	u.layoutTextEdit(gtx)
 	return layout.Dimensions{Size: size}
 }
 

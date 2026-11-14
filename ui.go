@@ -57,11 +57,10 @@ type UI struct {
 	tip     string
 	title   string
 
-	drag drag
-	pan  struct {
-		active bool
-		last   f32.Point
-	}
+	drag      drag
+	pan       panState
+	prompt    *prompt
+	typing    textEdit
 	spaceDown bool
 	hover     *Edit
 	clipboard []*Edit
@@ -78,6 +77,7 @@ type UI struct {
 		newTab   widget.Clickable
 		sizeDec  widget.Clickable
 		sizeInc  widget.Clickable
+		color    widget.Clickable
 		filled   widget.Clickable
 		grid     widget.Clickable
 		snap     widget.Clickable
@@ -85,6 +85,11 @@ type UI struct {
 }
 
 type tabButtons struct{ open, close widget.Clickable }
+
+type panState struct {
+	active bool
+	last   f32.Point
+}
 
 func newUI(w *app.Window) *UI {
 	th := material.NewTheme()
@@ -118,6 +123,7 @@ func (u *UI) Layout(gtx C) D {
 		layout.Rigid(u.layoutTabs),
 		layout.Rigid(u.layoutToolbar),
 		layout.Flexed(1, u.layoutCanvas),
+		layout.Rigid(u.layoutPrompt),
 		layout.Rigid(u.layoutStatus),
 	)
 	if t := "gdraw - " + u.doc().Title(); t != u.title {
@@ -135,7 +141,7 @@ func (u *UI) layoutTabs(gtx C) D {
 	for i, d := range u.tabs {
 		b := &u.btn.tabs[i]
 		if b.close.Clicked(gtx) {
-			u.closeTab(i)
+			u.requestCloseTab(i)
 			gtx.Execute(op.InvalidateCmd{})
 			return D{}
 		}
@@ -177,7 +183,15 @@ func (u *UI) layoutToolbar(gtx C) D {
 		}
 		items = append(items, func(gtx C) D { return u.swatch(gtx, b, c) })
 	}
-	items = append(items, spacer)
+	if u.btn.color.Clicked(gtx) {
+		u.pickColor()
+	}
+	items = append(items,
+		func(gtx C) D {
+			return u.button(gtx, &u.btn.color, u.color, false, u.withKey("pick color", "pick_color"))
+		},
+		spacer,
+	)
 
 	if u.btn.sizeDec.Clicked(gtx) {
 		u.setSize(u.size / sizeStep)

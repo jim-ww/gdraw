@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"math"
+
+	"gioui.org/io/system"
 )
 
 // Tool is the active drawing tool.
@@ -14,6 +16,7 @@ const (
 	ToolArrow
 	ToolRect
 	ToolCircle
+	ToolText
 	ToolEraser
 	ToolSelect
 	ToolMove
@@ -21,7 +24,7 @@ const (
 	numTools
 )
 
-var toolNames = [numTools]string{"brush", "line", "arrow", "rect", "circle", "eraser", "select", "move", "picker"}
+var toolNames = [numTools]string{"brush", "line", "arrow", "rect", "circle", "text", "eraser", "select", "move", "picker"}
 
 func (t Tool) String() string { return toolNames[t] }
 
@@ -60,6 +63,7 @@ func (u *UI) setTool(t Tool) {
 	if u.drag.active {
 		return
 	}
+	u.commitText()
 	u.tool = t
 	u.hover = nil
 }
@@ -82,9 +86,13 @@ func (u *UI) worldTol(dp float64) float64 { return dp / u.doc().Zoom }
 func (u *UI) eraserRadius() float64 { return max(u.size/2, u.worldTol(4)) }
 
 func (u *UI) toolDown(p Point) {
+	u.commitText()
 	d := u.doc()
 	u.drag = drag{active: true, start: p, last: p}
 	switch u.tool {
+	case ToolText:
+		u.drag = drag{}
+		u.startText(p)
 	case ToolBrush:
 		d.BeginChange()
 		u.drag.edit = &Edit{Kind: KindStroke, Points: []Point{p}, Color: u.color, Size: u.size}
@@ -300,7 +308,10 @@ func (u *UI) clearCanvas() {
 	u.status = "cleared (undo to restore)"
 }
 
+func (u *UI) quit() { u.win.Perform(system.ActionClose) }
+
 func (u *UI) newTab() {
+	u.commitText()
 	u.tabs = append(u.tabs, NewDocument())
 	u.active = len(u.tabs) - 1
 }
@@ -313,6 +324,7 @@ func (u *UI) closeTab(i int) {
 	}
 	u.active = min(u.active, len(u.tabs)-1)
 	u.drag = drag{}
+	u.typing.active = false
 	u.hover = nil
 }
 
@@ -320,6 +332,7 @@ func (u *UI) selectTab(i int) {
 	if u.drag.active {
 		return
 	}
+	u.commitText()
 	u.active = (i + len(u.tabs)) % len(u.tabs)
 	u.hover = nil
 }

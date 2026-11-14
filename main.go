@@ -2,6 +2,8 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"log"
 	"os"
 
@@ -11,10 +13,19 @@ import (
 )
 
 func main() {
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), "usage: gdraw [file.json ...]\n")
+		flag.PrintDefaults()
+	}
+	flag.Parse()
 	go func() {
 		w := new(app.Window)
 		w.Option(app.Title("gdraw"), app.Size(unit.Dp(1200), unit.Dp(800)))
-		if err := run(w, newUI(w)); err != nil {
+		u := newUI(w)
+		for _, path := range flag.Args() {
+			u.openPath(path)
+		}
+		if err := run(w, u); err != nil {
 			log.Fatal(err)
 		}
 		os.Exit(0)
