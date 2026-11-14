@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime/debug"
 
 	"gioui.org/app"
 	"gioui.org/io/system"
@@ -13,14 +14,22 @@ import (
 	"gioui.org/unit"
 )
 
+// version is set at release build time; see .goreleaser.yaml.
+var version = ""
+
 func main() {
 	restore := flag.Bool("restore", false, "reopen unsaved drawings recovered from an earlier session")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	configPath := flag.String("c", "", "config file (default: config.json in the user config dir)")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "usage: gdraw [-c config.json] [-restore] [file.json ...]\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "usage: gdraw [-c config.json] [-restore] [-version] [file.json ...]\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+	if *showVersion {
+		fmt.Println("gdraw", buildVersion())
+		return
+	}
 	cfg, err := LoadConfig(*configPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "gdraw: config:", err)
@@ -41,6 +50,18 @@ func main() {
 		os.Exit(0)
 	}()
 	app.Main()
+}
+
+// buildVersion returns the release version, falling back to the module
+// version recorded by go install.
+func buildVersion() string {
+	if version != "" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
+		return info.Main.Version
+	}
+	return "dev"
 }
 
 func run(w *app.Window, u *UI) error {
