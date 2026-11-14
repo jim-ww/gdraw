@@ -72,7 +72,8 @@ If gdraw is useful to you, consider a small donation.
 ```sh
 make check                    # vet, test, tidy and goreleaser config check
 make snapshot                 # build release archives into dist/ locally
-make release VERSION=v0.1.0   # tag @- and push the tag
+make release                  # push the latest v* tag
+make release VERSION=v0.2.0   # tag @- as v0.2.0 if needed, then push it
 ```
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds Linux (amd64) and Windows (amd64, arm64) binaries with GoReleaser and publishes the GitHub release. Linux binaries are built on Ubuntu because Gio links the system GUI libraries; macOS isn't built.
