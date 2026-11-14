@@ -342,6 +342,9 @@ func (u *UI) newTab() {
 
 // closeTab closes tab i, keeping at least one (empty) tab open.
 func (u *UI) closeTab(i int) {
+	if !u.tabs[i].Dirty {
+		clearAutosave(u.tabs[i])
+	}
 	u.tabs = append(u.tabs[:i], u.tabs[i+1:]...)
 	if len(u.tabs) == 0 {
 		u.tabs = []*Document{NewDocument()}

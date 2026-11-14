@@ -13,8 +13,9 @@ import (
 )
 
 func main() {
+	restore := flag.Bool("restore", false, "reopen unsaved drawings recovered from an earlier session")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "usage: gdraw [file.json ...]\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "usage: gdraw [-restore] [file.json ...]\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -22,6 +23,9 @@ func main() {
 		w := new(app.Window)
 		w.Option(app.Title("gdraw"), app.Size(unit.Dp(1200), unit.Dp(800)))
 		u := newUI(w)
+		if *restore {
+			u.restore()
+		}
 		for _, path := range flag.Args() {
 			u.openPath(path)
 		}
@@ -38,6 +42,9 @@ func run(w *app.Window, u *UI) error {
 	for {
 		switch e := w.Event().(type) {
 		case app.DestroyEvent:
+			// Closing the window can't be vetoed, so unsaved work goes to
+			// recovery files instead.
+			u.autosave()
 			return e.Err
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, e)

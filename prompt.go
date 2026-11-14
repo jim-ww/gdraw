@@ -27,10 +27,14 @@ type prompt struct {
 	ed      widget.Editor
 	focus   bool
 	yes, no widget.Clickable
+
+	// choices are clickable suggestions listed above the input.
+	choices []string
+	picks   []widget.Clickable
 }
 
-func (u *UI) ask(label, initial string, submit func(*UI, string)) {
-	p := &prompt{label: label, submit: submit, focus: true}
+func (u *UI) ask(label, initial string, submit func(*UI, string), choices ...string) {
+	p := &prompt{label: label, submit: submit, focus: true, choices: choices, picks: make([]widget.Clickable, len(choices))}
 	p.ed.SingleLine, p.ed.Submit = true, true
 	p.ed.SetText(initial)
 	p.ed.SetCaret(len(initial), len(initial))
@@ -100,7 +104,31 @@ func (u *UI) layoutPrompt(gtx C) D {
 				break
 			}
 		}
+		for i := range p.picks {
+			if p.picks[i].Clicked(gtx) {
+				u.prompt = nil
+				p.submit(u, p.choices[i])
+			}
+		}
 	}
+	if len(p.choices) == 0 {
+		return u.layoutPromptBar(gtx, p)
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx C) D {
+			items := make([]layout.FlexChild, len(p.choices))
+			for i, c := range p.choices {
+				items[i] = layout.Rigid(func(gtx C) D { return u.button(gtx, &p.picks[i], c, false, "") })
+			}
+			return layout.Inset{Left: 8, Bottom: 4}.Layout(gtx, func(gtx C) D {
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx, items...)
+			})
+		}),
+		layout.Rigid(func(gtx C) D { return u.layoutPromptBar(gtx, p) }),
+	)
+}
+
+func (u *UI) layoutPromptBar(gtx C, p *prompt) D {
 	return layout.Background{}.Layout(gtx,
 		func(gtx C) D {
 			paint.FillShape(gtx.Ops, btnHover, clip.Rect{Max: gtx.Constraints.Min}.Op())
@@ -248,6 +276,10 @@ func (u *UI) saveTo(path string) {
 		u.status = fmt.Sprintf("saving %s failed: %v", path, err)
 		return
 	}
+	if d.Path == path {
+		clearAutosave(d)
+		u.remember(path)
+	}
 	u.status = "saved " + path
 }
 
@@ -260,7 +292,7 @@ func (u *UI) export() {
 }
 
 func (u *UI) open() {
-	u.ask("open", "", func(u *UI, path string) { u.openPath(expandPath(path)) })
+	u.ask("open", "", func(u *UI, path string) { u.openPath(expandPath(path)) }, u.recent...)
 }
 
 // openPath opens path in a new tab, or replaces the active tab if it is
@@ -280,13 +312,20 @@ func (u *UI) openPath(path string) {
 		u.status = fmt.Sprintf("open failed: %v", err)
 		return
 	}
+	u.addTab(d)
+	u.remember(path)
+	u.status = "opened " + path
+}
+
+// addTab shows d in a new tab, or in place of the active tab if that is an
+// untouched empty document.
+func (u *UI) addTab(d *Document) {
 	if cur := u.doc(); cur.Path == "" && !cur.Dirty && len(cur.Edits) == 0 {
 		u.tabs[u.active] = d
-	} else {
-		u.tabs = append(u.tabs, d)
-		u.active = len(u.tabs) - 1
+		return
 	}
-	u.status = "opened " + path
+	u.tabs = append(u.tabs, d)
+	u.active = len(u.tabs) - 1
 }
 
 func (u *UI) pickColor() {
@@ -311,6 +350,7 @@ func (u *UI) requestCloseTab(i int) {
 	}
 	d := u.tabs[i]
 	u.confirm(fmt.Sprintf("discard unsaved changes to %s?", d.Title()), func(u *UI) {
+		clearAutosave(d)
 		for j, t := range u.tabs {
 			if t == d {
 				u.closeTab(j)
@@ -331,5 +371,18 @@ func (u *UI) requestQuit() {
 		u.quit()
 		return
 	}
-	u.confirm(fmt.Sprintf("discard unsaved changes in %d tab(s) and quit?", n), (*UI).quit)
+	u.confirm(fmt.Sprintf("discard unsaved changes in %s and quit?", plural(n, "tab")), func(u *UI) {
+		for _, d := range u.tabs {
+			clearAutosave(d)
+			d.Dirty = false
+		}
+		u.quit()
+	})
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }

@@ -13,9 +13,10 @@ type Document struct {
 	// Version increments on every change that affects rendering.
 	Version int
 
-	nextID  int
-	history history
-	fills   map[*Edit]*fillEntry
+	nextID     int
+	history    history
+	fills      map[*Edit]*fillEntry
+	autosaveID string // names the recovery file, see autosave.go
 }
 
 // NewDocument returns an empty, untitled document.

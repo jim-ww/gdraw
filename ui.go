@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"time"
 
 	"gioui.org/app"
 	"gioui.org/f32"
@@ -53,9 +54,12 @@ type UI struct {
 	grid    bool
 	snap    bool
 	palette []string
+	recent  []string
 	status  string
 	tip     string
 	title   string
+
+	nextAutosave time.Time
 
 	drag      drag
 	pan       panState
@@ -107,7 +111,11 @@ func newUI(w *app.Window) *UI {
 		size:    3,
 		grid:    true,
 		palette: defaultPalette,
+		recent:  loadRecent(),
 		pxPerDp: 1,
+	}
+	if n := len(recoveryFiles()); n > 0 {
+		u.status = fmt.Sprintf("found %s from an earlier session; run gdraw -restore to recover", plural(n, "unsaved drawing"))
 	}
 	u.btn.swatches = make([]widget.Clickable, len(u.palette))
 	return u
@@ -116,6 +124,13 @@ func newUI(w *app.Window) *UI {
 func (u *UI) Layout(gtx C) D {
 	u.pxPerDp = gtx.Metric.PxPerDp
 	u.tip = ""
+	if gtx.Now.After(u.nextAutosave) {
+		if !u.nextAutosave.IsZero() {
+			u.autosave()
+		}
+		u.nextAutosave = gtx.Now.Add(autosaveInterval)
+	}
+	gtx.Execute(op.InvalidateCmd{At: u.nextAutosave})
 	u.handleKeys(gtx)
 
 	paint.Fill(gtx.Ops, barBg)
