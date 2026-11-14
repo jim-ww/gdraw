@@ -70,6 +70,7 @@ func defaultActions() []action {
 		{"next_tab", "next tab", []string{"tab"}, func(u *UI) { u.selectTab(u.active + 1) }},
 		{"prev_tab", "previous tab", []string{"shift+tab"}, func(u *UI) { u.selectTab(u.active - 1) }},
 
+		{"help", "show keys", []string{"?", "f1"}, func(u *UI) { u.help = true }},
 		{"quit", "quit", []string{"ctrl+q"}, (*UI).requestQuit},
 	}
 	for i := range 9 {
@@ -230,6 +231,9 @@ func (u *UI) handleKeys(gtx layout.Context) {
 		return
 	case u.typing.active:
 		u.handleTextKeys(gtx)
+		return
+	case u.help:
+		u.handleHelpKeys(gtx)
 		return
 	}
 	for {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -58,6 +59,7 @@ type UI struct {
 	status  string
 	tip     string
 	title   string
+	help    bool
 
 	nextAutosave time.Time
 
@@ -95,12 +97,12 @@ type panState struct {
 	last   f32.Point
 }
 
-func newUI(w *app.Window) *UI {
+func newUI(w *app.Window, cfg Config) *UI {
 	th := material.NewTheme()
 	th.Shaper = text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
 	th.Palette = material.Palette{Bg: barBg, Fg: textCol, ContrastBg: btnActive, ContrastFg: textCol}
 	th.TextSize = 13
-	km, _ := newKeymap(defaultActions(), nil)
+	km, errs := newKeymap(defaultActions(), cfg.Keys)
 	u := &UI{
 		win:     w,
 		th:      th,
@@ -114,10 +116,27 @@ func newUI(w *app.Window) *UI {
 		recent:  loadRecent(),
 		pxPerDp: 1,
 	}
+	if len(cfg.Palette) > 0 {
+		u.palette = cfg.Palette
+		u.color = cfg.Palette[0]
+	}
+	if cfg.DefaultColor != "" {
+		u.color = cfg.DefaultColor
+	}
+	if cfg.DefaultSize > 0 {
+		u.setSize(cfg.DefaultSize)
+	}
+	u.grid = !cfg.HideGrid
+	if k := km.keysFor("help"); k != "" {
+		u.status = "press " + k + " for keys"
+	}
 	if n := len(recoveryFiles()); n > 0 {
 		u.status = fmt.Sprintf("found %s from an earlier session; run gdraw -restore to recover", plural(n, "unsaved drawing"))
 	}
 	u.btn.swatches = make([]widget.Clickable, len(u.palette))
+	if len(errs) > 0 {
+		u.status = fmt.Sprintf("config keys: %v", errors.Join(errs...))
+	}
 	return u
 }
 
@@ -137,7 +156,13 @@ func (u *UI) Layout(gtx C) D {
 	dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(u.layoutTabs),
 		layout.Rigid(u.layoutToolbar),
-		layout.Flexed(1, u.layoutCanvas),
+		layout.Flexed(1, func(gtx C) D {
+			dims := u.layoutCanvas(gtx)
+			if u.help {
+				u.layoutHelp(gtx)
+			}
+			return dims
+		}),
 		layout.Rigid(u.layoutPrompt),
 		layout.Rigid(u.layoutStatus),
 	)

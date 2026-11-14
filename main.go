@@ -14,15 +14,20 @@ import (
 
 func main() {
 	restore := flag.Bool("restore", false, "reopen unsaved drawings recovered from an earlier session")
+	configPath := flag.String("c", "", "config file (default: config.json in the user config dir)")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "usage: gdraw [-restore] [file.json ...]\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "usage: gdraw [-c config.json] [-restore] [file.json ...]\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+	cfg, err := LoadConfig(*configPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "gdraw: config:", err)
+	}
 	go func() {
 		w := new(app.Window)
 		w.Option(app.Title("gdraw"), app.Size(unit.Dp(1200), unit.Dp(800)))
-		u := newUI(w)
+		u := newUI(w, cfg)
 		if *restore {
 			u.restore()
 		}
