@@ -30,6 +30,7 @@ func defaultActions() []action {
 		toolAction(ToolRect, "r"),
 		toolAction(ToolCircle, "c"),
 		toolAction(ToolText, "t"),
+		toolAction(ToolFill, "f"),
 		toolAction(ToolEraser, "e"),
 		toolAction(ToolSelect, "s"),
 		toolAction(ToolMove, "m"),

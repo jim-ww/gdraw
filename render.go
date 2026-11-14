@@ -38,17 +38,21 @@ type scene struct {
 func (s *scene) draw(ops *op.Ops, r *renderer, d *Document, skip *Edit) {
 	if s.doc != d || s.ver != d.Version || s.skip != skip {
 		s.doc, s.ver, s.skip = d, d.Version, skip
+		d.updateFills()
 		s.ops.Reset()
 		m := op.Record(&s.ops)
-		for _, e := range d.Edits {
-			if e == skip {
-				continue
+		// Fills go first, underneath the ink that encloses them.
+		for _, fills := range []bool{true, false} {
+			for _, e := range d.Edits {
+				if e == skip || (e.Kind == KindFill) != fills {
+					continue
+				}
+				c := e.Color
+				if e.Selected {
+					c = selectColor
+				}
+				r.drawEdit(&s.ops, d, e, c)
 			}
-			c := e.Color
-			if e.Selected {
-				c = selectColor
-			}
-			r.drawEdit(&s.ops, e, c)
 		}
 		s.call = m.Stop()
 	}
@@ -60,7 +64,7 @@ type renderer struct {
 	shaper *text.Shaper
 }
 
-func (r *renderer) drawEdit(ops *op.Ops, e *Edit, hex string) {
+func (r *renderer) drawEdit(ops *op.Ops, d *Document, e *Edit, hex string) {
 	if len(e.Points) == 0 {
 		return
 	}
@@ -88,6 +92,8 @@ func (r *renderer) drawEdit(ops *op.Ops, e *Edit, hex string) {
 		paint.FillShape(ops, col, clip.Stroke{Path: ellipseSpec(ops, fpt(lo), fpt(hi)), Width: w}.Op())
 	case KindText:
 		r.drawText(ops, e, col)
+	case KindFill:
+		drawFill(ops, d.fills[e], hex)
 	}
 }
 

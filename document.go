@@ -15,6 +15,7 @@ type Document struct {
 
 	nextID  int
 	history history
+	fills   map[*Edit]*fillEntry
 }
 
 // NewDocument returns an empty, untitled document.

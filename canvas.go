@@ -80,10 +80,10 @@ func (u *UI) layoutCanvas(gtx layout.Context) layout.Dimensions {
 	view := op.Affine(f32.AffineId().Offset(fpt(d.Offset).Mul(-1)).Scale(f32.Point{}, f32.Pt(s, s))).Push(gtx.Ops)
 	u.scene.draw(gtx.Ops, &u.render, d, u.drag.edit)
 	if e := u.drag.edit; e != nil {
-		u.render.drawEdit(gtx.Ops, e, e.Color)
+		u.render.drawEdit(gtx.Ops, d, e, e.Color)
 	}
 	if u.hover != nil && !u.drag.active {
-		u.render.drawEdit(gtx.Ops, u.hover, hoverColor)
+		u.render.drawEdit(gtx.Ops, d, u.hover, hoverColor)
 	}
 	view.Pop()
 

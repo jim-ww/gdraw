@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"slices"
 
 	"gioui.org/io/system"
 )
@@ -17,6 +18,7 @@ const (
 	ToolRect
 	ToolCircle
 	ToolText
+	ToolFill
 	ToolEraser
 	ToolSelect
 	ToolMove
@@ -24,7 +26,7 @@ const (
 	numTools
 )
 
-var toolNames = [numTools]string{"brush", "line", "arrow", "rect", "circle", "text", "eraser", "select", "move", "picker"}
+var toolNames = [numTools]string{"brush", "line", "arrow", "rect", "circle", "text", "fill", "eraser", "select", "move", "picker"}
 
 func (t Tool) String() string { return toolNames[t] }
 
@@ -93,6 +95,20 @@ func (u *UI) toolDown(p Point) {
 	case ToolText:
 		u.drag = drag{}
 		u.startText(p)
+	case ToolFill:
+		u.drag = drag{}
+		m, window := fillRegion(d.Edits, p)
+		if m == nil {
+			u.status = "fill needs an enclosed area"
+			return
+		}
+		d.BeginChange()
+		e := &Edit{Kind: KindFill, Points: []Point{p}, Color: u.color}
+		d.Add(e)
+		if d.fills == nil {
+			d.fills = make(map[*Edit]*fillEntry)
+		}
+		d.fills[e] = newFillEntry(d.Edits, p, m, window)
 	case ToolBrush:
 		d.BeginChange()
 		u.drag.edit = &Edit{Kind: KindStroke, Points: []Point{p}, Color: u.color, Size: u.size}
@@ -176,12 +192,17 @@ func (u *UI) eraseAt(p Point) {
 	r := u.eraserRadius()
 	kept := make([]*Edit, 0, len(d.Edits))
 	for _, e := range d.Edits {
-		if e.Distance(p) > r {
+		if e.Kind == KindFill || e.Distance(p) > r {
 			kept = append(kept, e)
 		}
 	}
 	if len(kept) == len(d.Edits) {
-		return
+		// Nothing but fills under the eraser: erase the topmost one.
+		f := d.fillAt(p)
+		if f == nil {
+			return
+		}
+		kept = slices.DeleteFunc(kept, func(e *Edit) bool { return e == f })
 	}
 	if !u.drag.changed {
 		d.BeginChange()
@@ -206,15 +227,16 @@ func (u *UI) selectRect(a, b Point) {
 	u.doc().Touch()
 }
 
-// editAt returns the topmost edit within tol of p, or nil.
+// editAt returns the topmost edit within tol of p, falling back to the
+// fill under p.
 func (u *UI) editAt(p Point, tol float64) *Edit {
-	edits := u.doc().Edits
-	for i := len(edits) - 1; i >= 0; i-- {
-		if edits[i].Distance(p) <= tol {
-			return edits[i]
+	d := u.doc()
+	for i := len(d.Edits) - 1; i >= 0; i-- {
+		if e := d.Edits[i]; e.Kind != KindFill && e.Distance(p) <= tol {
+			return e
 		}
 	}
-	return nil
+	return d.fillAt(p)
 }
 
 // updateHover tracks the edit the eraser or move tool would act on.
@@ -223,6 +245,8 @@ func (u *UI) updateHover(p Point) {
 	switch u.tool {
 	case ToolEraser:
 		u.hover = u.editAt(p, u.eraserRadius())
+	case ToolFill:
+		u.hover = nil
 	case ToolMove, ToolPicker:
 		u.hover = u.editAt(p, u.worldTol(hitTolerance))
 	}
