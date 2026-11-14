@@ -1,16 +1,20 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 # vim: set ts=2 sw=2 tw=0 fo=cnqoj
 
-# Gio needs cgo and the system GUI libraries on Linux, so Linux binaries
-# are built natively by .github/workflows/release.yml on Ubuntu. Windows
-# needs no cgo and cross-compiles. macOS needs cgo with Apple's SDK and
-# isn't built here.
+# Run from the nix dev shell: `nix develop`, then `goreleaser release --clean`.
+#
+# Gio needs cgo and the system GUI libraries on Linux. The Linux binary is
+# built against nixpkgs and then patched to use the standard loader and
+# library search path, so it runs on regular distros. Windows needs no cgo
+# and cross-compiles. macOS needs cgo with Apple's SDK and isn't built.
 
 version: 2
 
 before:
   hooks:
     - go mod tidy
+    - go vet ./...
+    - go test ./...
 
 builds:
   - id: linux
@@ -21,6 +25,9 @@ builds:
     flags: [-trimpath]
     ldflags:
       - -s -w -X main.version={{.Version}}
+    hooks:
+      post:
+        - patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 --remove-rpath "{{ .Path }}"
 
   - id: windows
     env:

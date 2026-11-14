@@ -69,14 +69,17 @@ If gdraw is useful to you, consider a small donation.
 
 ## Releasing
 
+Releases are built locally with [GoReleaser](https://goreleaser.com) from the nix dev shell:
+
 ```sh
-make check                    # vet, test, tidy and goreleaser config check
-make snapshot                 # build release archives into dist/ locally
-make release                  # push the latest v* tag
-make release VERSION=v0.2.0   # tag @- as v0.2.0 if needed, then push it
+nix develop
+goreleaser release --snapshot --clean                         # build archives into dist/ without publishing
+jj tag set v0.2.0 -r @- && jj git push --tag v0.2.0
+GITHUB_TOKEN=$(gh auth token) goreleaser release --clean      # build the latest v* tag and publish it
+GORELEASER_CURRENT_TAG=v0.1.0 goreleaser release --clean      # pick another tag
 ```
 
-Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds Linux (amd64) and Windows (amd64, arm64) binaries with GoReleaser and publishes the GitHub release. Linux binaries are built on Ubuntu because Gio links the system GUI libraries; macOS isn't built.
+This builds Linux (amd64) and Windows (amd64, arm64). The Linux binary is patched after the build to use the standard loader and system libraries, and needs glibc 2.34 or newer. macOS isn't built.
 
 ## License
 
