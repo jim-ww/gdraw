@@ -64,6 +64,7 @@ func defaultActions() []action {
 		{"open", "open", []string{"ctrl+o"}, (*UI).open},
 		{"save", "save", []string{"ctrl+s"}, (*UI).save},
 		{"save_as", "save as", []string{"ctrl+shift+s"}, (*UI).saveAs},
+		{"export", "export png/svg", []string{"ctrl+e"}, (*UI).export},
 		{"new_tab", "new tab", []string{"ctrl+t", "ctrl+n"}, (*UI).newTab},
 		{"close_tab", "close tab", []string{"ctrl+w"}, func(u *UI) { u.requestCloseTab(u.active) }},
 		{"next_tab", "next tab", []string{"tab"}, func(u *UI) { u.selectTab(u.active + 1) }},

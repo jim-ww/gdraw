@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"image"
+	"path/filepath"
+	"strings"
 
 	"gioui.org/font"
 	"gioui.org/io/event"
@@ -226,15 +228,35 @@ func (u *UI) saveAs() {
 	u.ask("save as", initial, func(u *UI, path string) { u.saveTo(expandPath(path)) })
 }
 
+// saveTo saves the active document to path, or exports it when path ends
+// in .png or .svg.
 func (u *UI) saveTo(path string) {
 	if path == "" {
 		return
 	}
-	if err := u.doc().Save(path); err != nil {
-		u.status = fmt.Sprintf("save failed: %v", err)
+	d := u.doc()
+	var err error
+	switch {
+	case hasExt(path, ".png"):
+		err = ExportPNG(d.Edits, path)
+	case hasExt(path, ".svg"):
+		err = ExportSVG(d.Edits, path)
+	default:
+		err = d.Save(path)
+	}
+	if err != nil {
+		u.status = fmt.Sprintf("saving %s failed: %v", path, err)
 		return
 	}
 	u.status = "saved " + path
+}
+
+func (u *UI) export() {
+	base := strings.TrimSuffix(u.doc().Path, filepath.Ext(u.doc().Path))
+	if base == "" {
+		base = "untitled"
+	}
+	u.ask("export (.png or .svg)", base+".png", func(u *UI, path string) { u.saveTo(expandPath(path)) })
 }
 
 func (u *UI) open() {
