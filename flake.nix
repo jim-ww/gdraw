@@ -28,10 +28,25 @@
           version = "0.1.0";
           src = ./.;
           vendorHash = "sha256-vt+VebX1tQW91zyfCYRVoviDFQr1MmKuDvBGcSk+G/c=";
-          nativeBuildInputs = [ pkgs.pkg-config pkgs.makeWrapper ];
+          nativeBuildInputs = [ pkgs.pkg-config pkgs.makeWrapper pkgs.copyDesktopItems ];
           buildInputs = libs;
           subPackages = [ "." ];
           doCheck = false;
+          desktopItems = [
+            (pkgs.makeDesktopItem {
+              name = "gdraw";
+              desktopName = "gdraw";
+              genericName = "Drawing";
+              comment = "A minimalist canvas for quick drawings";
+              exec = "gdraw %F";
+              icon = "gdraw";
+              categories = [ "Graphics" "2DGraphics" ];
+              keywords = [ "draw" "paint" "sketch" "canvas" ];
+            })
+          ];
+          postInstall = ''
+            install -Dm644 gdraw.svg $out/share/icons/hicolor/scalable/apps/gdraw.svg
+          '';
           postFixup = ''
             wrapProgram $out/bin/gdraw --prefix LD_LIBRARY_PATH : ${runtimeLibs}
           '';
